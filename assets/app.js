@@ -1,457 +1,586 @@
-import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
+import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
 
 const html = htm.bind(React.createElement);
 
-const STORAGE_KEY = "budget-flow-planner-react-v1";
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHR1TZP8doS1WXuZlsQ5-d2DybpfAPBbYtzOblXp_VDMO2aIIOBiEofUacjLeF2TFFNg/exec";
-const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-const THEMES = ["light", "paper", "dark"];
-const VIEWS = ["planner", "plans", "dogs", "calendar", "ai-analysis"];
-const DEEPSEEK_API_KEY = ""; // TODO: Add from env or settings
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
-
-const defaultState = {
-  settings: {
-    appsScriptUrl: APPS_SCRIPT_URL,
-    syncToken: "",
-    lastSyncedAt: "",
-    theme: "light",
-  },
-  view: getRouteView(),
-  calendarMonth: getCurrentMonth(),
-  feedFilters: {
-    search: "",
-    month: "",
-  },
-  feedActiveTab: "active",  // NEW: Track active vs archive tab
-  planner: {
-    date: "",
-    text: "",
-    repeatMonthly: false,   // NEW: Repeat monthly option
-    updatedAt: "",
-  },
-  dogs: {
-    date: "",
-    text: "",
-    updatedAt: "",
-    isLoading: false,       // NEW: Loading state for skeleton
-    isSaving: false,        // NEW: Saving state to block actions
-  },
+const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHR1TZP8doS1WXuZlsQ5-d2DybpfAPBbYtzOblXp_VDMO2aIIOBiEofUacjLeF2TFFNg/exec";
+const THEME_STORAGE_KEY = "budget-planner-theme";
+const NAV_ITEMS = [
+  { id: "planner", label: "Планировщик трат" },
+  { id: "plans", label: "Лента" },
+  { id: "dogs", label: "Собаки" },
+  { id: "calendar", label: "Календарь" },
+  { id: "ai", label: "ИИ-анализ" },
+];
+const THEMES = [
+  { id: "light", label: "Светлая" },
+  { id: "paper", label: "Мягкая" },
+  { id: "dark", label: "Тёмная" },
+];
+const EMOJIS = ["😊", "🙂", "😌", "🤍", "📌", "📅", "🐶", "💸", "✨", "🔥"];
+const AI_ENDPOINTS = {
+  deepseek: "https://api.deepseek.com/chat/completions",
+  openai: "https://api.openai.com/v1/chat/completions",
+  groq: "https://api.groq.com/openai/v1/chat/completions",
+};
+const DEFAULT_STATE = {
+  settings: { theme: "light", lastSyncedAt: "" },
+  view: "planner",
+  calendarMonth: "",
+  plannerSelectedDate: "",
+  dogsSelectedDate: "",
+  feedFilters: { search: "", mode: "active" },
+  plannerEntries: [],
+  dogsEntries: [],
   posts: [],
-  aiAnalysis: {             // NEW: AI Analysis section state
-    uploadedFile: null,
-    originalData: [],
-    categorizedData: [],
-    customCategories: [],
-    comments: {},
-    analysisPrompt: "",
+  ai: {
+    provider: "deepseek",
+    model: "deepseek-chat",
+    prompt: "",
+    csvText: "",
     analysisResult: "",
-    isLoading: false,
-    error: "",
+    categoryMappings: [],
+    lastRunAt: "",
   },
 };
 
-function App() {
-  const [state, setState] = useState(() => loadState());
-  const [loading, setLoading] = useState(true);
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-  const [toast, setToast] = useState("");
-  const [plannerEditing, setPlannerEditing] = useState(false);
-  const [dogsEditing, setDogsEditing] = useState(false);
-  const [postModalOpen, setPostModalOpen] = useState(false);           // NEW: Post modal state
-  const [postFullscreenImage, setPostFullscreenImage] = useState(null); // NEW: Fullscreen image viewer
-  const [postFullscreenIndex, setPostFullscreenIndex] = useState(0);    // NEW: Current image index
-  const [plannerDraft, setPlannerDraft] = useState(() => ({
-    date: defaultState.planner.date,
-    text: defaultState.planner.text,
-    repeatMonthly: defaultState.planner.repeatMonthly,  // NEW
-  }));
-  const [dogsDraft, setDogsDraft] = useState(() => ({
-    date: defaultState.dogs.date,
-    text: defaultState.dogs.text,
-  }));
-  const [postDraft, setPostDraft] = useState({
-    text: "",
-    dateFrom: "",
-    dateTo: "",
-    imageUrl: "",
-    file: null,
-    pinned: false,                                      // NEW
-    images: [],                                         // NEW: Multiple images support
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+const getStoredTheme = () => window.localStorage.getItem(THEME_STORAGE_KEY) || "light";
+const setStoredTheme = (theme) => window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const nowISO = () => new Date().toISOString();
+const routeToView = (hash) => NAV_ITEMS.find((item) => `#/${item.id}` === hash)?.id || "planner";
+const toHash = (view) => `#/${view}`;
+const toMonthKey = (date) => (date || todayISO()).slice(0, 7);
+const formatDate = (date) => {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`));
+};
+const formatShortDate = (date) => {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`));
+};
+const formatTime = (date) => {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(date));
+};
+const compareDesc = (a, b) => new Date(b).getTime() - new Date(a).getTime();
+const normalizeState = (payload = {}) => ({
+  settings: {
+    theme: payload.settings?.theme || DEFAULT_STATE.settings.theme,
+    lastSyncedAt: payload.settings?.lastSyncedAt || "",
+  },
+  view: payload.view || DEFAULT_STATE.view,
+  calendarMonth: payload.calendarMonth || "",
+  plannerSelectedDate: payload.plannerSelectedDate || "",
+  dogsSelectedDate: payload.dogsSelectedDate || "",
+  feedFilters: {
+    search: payload.feedFilters?.search || "",
+    mode: payload.feedFilters?.mode || (payload.feedFilters?.showArchived ? "archived" : "active"),
+  },
+  plannerEntries: Array.isArray(payload.plannerEntries) ? payload.plannerEntries.map((entry) => ({
+    id: entry.id || uid("planner"),
+    date: entry.date || "",
+    text: entry.text || "",
+    repeatMonthly: Boolean(entry.repeatMonthly),
+    updatedAt: entry.updatedAt || "",
+  })) : [],
+  dogsEntries: Array.isArray(payload.dogsEntries) ? payload.dogsEntries.map((entry) => ({
+    id: entry.id || uid("dogs"),
+    date: entry.date || "",
+    text: entry.text || "",
+    repeatMonthly: Boolean(entry.repeatMonthly),
+    updatedAt: entry.updatedAt || "",
+  })) : [],
+  posts: Array.isArray(payload.posts) ? payload.posts.map((post) => ({
+    id: post.id || uid("post"),
+    author: post.author || "Лёша",
+    text: post.text || "",
+    images: Array.isArray(post.images) ? post.images : (post.image ? [post.image] : []),
+    pinned: Boolean(post.pinned),
+    archived: Boolean(post.archived),
+    createdAt: post.createdAt || nowISO(),
+    startDate: post.startDate || (post.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
+    endDate: post.endDate || post.startDate || (post.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
+  })) : [],
+  ai: {
+    provider: payload.ai?.provider || DEFAULT_STATE.ai.provider,
+    model: payload.ai?.model || DEFAULT_STATE.ai.model,
+    prompt: payload.ai?.prompt || "",
+    csvText: payload.ai?.csvText || "",
+    analysisResult: payload.ai?.analysisResult || "",
+    categoryMappings: Array.isArray(payload.ai?.categoryMappings) ? payload.ai.categoryMappings : [],
+    lastRunAt: payload.ai?.lastRunAt || "",
+  },
+});
+const readTextFile = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ""));
+  reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
+  reader.readAsText(file, "utf-8");
+});
+const readArrayBuffer = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
+  reader.readAsArrayBuffer(file);
+});
+const scoreDecodedCsv = (text) => {
+  const header = String(text || "").split(/\r?\n/, 1)[0] || "";
+  const keywords = [
+    "\u0414\u0430\u0442\u0430 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
+    "\u041a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f",
+    "\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435",
+    "\u0421\u0443\u043c\u043c\u0430 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
+    "\u0412\u0430\u043b\u044e\u0442\u0430 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
+  ];
+  const keywordScore = keywords.reduce((score, keyword) => score + (header.includes(keyword) ? 2 : 0), 0);
+  const mojibakePenalty = /Р.|С.|Ѓ|ђ|ё|�/.test(header) ? -4 : 0;
+  const delimiterScore = (header.match(/;/g) || []).length > 5 ? 1 : 0;
+  return keywordScore + delimiterScore + mojibakePenalty;
+};
+const readCsvFile = async (file) => {
+  const buffer = await readArrayBuffer(file);
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  let cp1251 = utf8;
+  try {
+    cp1251 = new TextDecoder("windows-1251", { fatal: false }).decode(buffer);
+  } catch (error) {
+    cp1251 = utf8;
+  }
+  return scoreDecodedCsv(cp1251) >= scoreDecodedCsv(utf8) ? cp1251 : utf8;
+};
+const readBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+  reader.onerror = () => reject(new Error("Не удалось прочитать изображение"));
+  reader.readAsDataURL(file);
+});
+const resizeImageFile = (file, maxSide = 1400, quality = 0.84) => new Promise((resolve, reject) => {
+  if (!file.type.startsWith("image/")) {
+    resolve(file);
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error("Не удалось подготовить изображение"));
+  reader.onload = () => {
+    const image = new Image();
+    image.onerror = () => reject(new Error("Не удалось обработать изображение"));
+    image.onload = () => {
+      const ratio = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * ratio));
+      const height = Math.max(1, Math.round(image.height * ratio));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0, width, height);
+      const outputType = /png|webp|jpeg|jpg/.test(file.type) ? file.type.replace("jpg", "jpeg") : "image/jpeg";
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Не удалось сжать изображение"));
+          return;
+        }
+        resolve(new File([blob], file.name, { type: blob.type || outputType }));
+      }, outputType, quality);
+    };
+    image.src = String(reader.result || "");
+  };
+  reader.readAsDataURL(file);
+});
+const detectDelimiter = (text) => {
+  const head = String(text || "").split(/\r?\n/, 1)[0] || "";
+  const semicolonCount = (head.match(/;/g) || []).length;
+  const commaCount = (head.match(/,/g) || []).length;
+  return semicolonCount > commaCount ? ";" : ",";
+};
+const parseCsv = (text) => {
+  const delimiter = detectDelimiter(text);
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === "\"") {
+      if (quoted && next === "\"") {
+        value += "\"";
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === delimiter && !quoted) {
+      row.push(value);
+      value = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += char;
+    }
+  }
+  if (value || row.length) {
+    row.push(value);
+    rows.push(row);
+  }
+  return rows.filter((item) => item.some((cell) => String(cell || "").trim()));
+};
+const parseAmount = (value) => {
+  const normalized = String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/\u00A0/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const normalizeCategoryName = (value) => String(value || "")
+  .replace(/\s+/g, " ")
+  .replace(/\u00A0/g, " ")
+  .trim();
+const normalizeKey = (value) => normalizeCategoryName(value).toLowerCase();
+const parseOperationDate = (value) => {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{2})\.(\d{2})\.(\d{4})(?: (\d{2}):(\d{2}):(\d{2}))?/);
+  if (!match) return 0;
+  const [, day, month, year, hours = "00", minutes = "00", seconds = "00"] = match;
+  return new Date(`${year}-${month}-${day}T${hours}:${minutes}:${seconds}`).getTime();
+};
+const buildCardLabel = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "Без номера карты";
+  return text.startsWith("*") ? `Карта ${text}` : text;
+};
+const detectBankByTransfer = (cardNumber, description) => {
+  const text = `${cardNumber || ""} ${description || ""}`.toLowerCase();
+  if (text.includes("сбер")) return "СберБанк";
+  if (text.includes("тинькофф") || text.includes("t-bank") || text.includes("т-банк")) return "Т-Банк";
+  if (text.includes("альфа")) return "Альфа-Банк";
+  if (text.includes("втб")) return "ВТБ";
+  if (text.includes("газпром")) return "Газпромбанк";
+  if (text.includes("райфф")) return "Райффайзен";
+  if (text.includes("озон")) return "Ozon Банк";
+  if (text.includes("совком")) return "Совкомбанк";
+  if (text.includes("мтс")) return "МТС Банк";
+  return "Банк не определён";
+};
+const buildLocalAiData = (csvText, currentMappings = []) => {
+  const rows = parseCsv(csvText);
+  if (rows.length < 2) {
+    return {
+      rows: [],
+      mappings: [],
+      summary: null,
+    };
+  }
+  const header = rows[0].map((cell) => String(cell || "").trim().toLowerCase());
+  const dataRows = rows.slice(1);
+  const bankLayoutFallback = rows[0].length >= 12 ? { date: 0, amount: 4, currency: 5, category: 9, description: 11 } : {};
+  const dateIndex = header.findIndex((cell) => cell.includes("дата опера") || cell.includes("transaction date"));
+  const categoryIndex = header.findIndex((cell) => cell.includes("катег") || cell.includes("category"));
+  const descriptionIndex = header.findIndex((cell) => cell.includes("опис") || cell.includes("description"));
+  const amountIndex = header.findIndex((cell) => (cell.includes("сумма") && cell.includes("опера")) || cell.includes("amount"));
+  const currencyIndex = header.findIndex((cell) => (cell.includes("валют") && cell.includes("опера")) || cell.includes("currency"));
+  const resolvedDateIndex = dateIndex >= 0 ? dateIndex : (bankLayoutFallback.date ?? 0);
+  const resolvedCategoryIndex = categoryIndex >= 0 ? categoryIndex : (bankLayoutFallback.category ?? 0);
+  const resolvedDescriptionIndex = descriptionIndex >= 0 ? descriptionIndex : (bankLayoutFallback.description ?? 1);
+  const resolvedAmountIndex = amountIndex >= 0 ? amountIndex : (bankLayoutFallback.amount ?? 0);
+  const resolvedCurrencyIndex = currencyIndex >= 0 ? currencyIndex : (bankLayoutFallback.currency ?? 0);
+  const items = dataRows.map((row, index) => ({
+    id: uid(`txn-${index}`),
+    date: String(row[resolvedDateIndex] || "").trim(),
+    category: normalizeCategoryName(row[resolvedCategoryIndex] || "Без категории"),
+    description: String(row[resolvedDescriptionIndex] || "").trim(),
+    amount: parseAmount(row[resolvedAmountIndex]),
+    currency: String(row[resolvedCurrencyIndex] || "RUB").trim(),
+    cardNumber: String(row[2] || "").trim(),
+  })).filter((item) => item.category || item.description || item.amount)
+    .map((item) => ({
+      ...item,
+      sourceKey: normalizeKey(item.category),
+      dateValue: parseOperationDate(item.date),
+      bankLabel: normalizeKey(item.category) === normalizeKey("Переводы")
+        ? detectBankByTransfer(item.cardNumber, item.description)
+        : "",
+    }));
+
+  const grouped = new Map();
+  items.forEach((item) => {
+    const groupKey = item.sourceKey;
+    const current = grouped.get(groupKey) || {
+      id: uid("map"),
+      source: item.category,
+      target: item.category,
+      comment: "",
+      count: 0,
+      total: 0,
+    };
+    current.count += 1;
+    current.total += item.amount;
+    grouped.set(groupKey, current);
   });
-  const toastTimer = useRef(0);
-  const themeMenuRef = useRef(null);
-  const postModalRef = useRef(null);                    // NEW: Modal ref for click-outside detection
-  const postFullscreenRef = useRef(null);              // NEW: Fullscreen image ref
+
+  const mappings = [...grouped.values()]
+    .map((item) => {
+      const existing = currentMappings.find((row) => row.source === item.source);
+      return existing
+        ? { ...item, target: existing.target, comment: existing.comment || "" }
+        : item;
+    })
+    .sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
+
+  const summary = {
+    operations: items.length,
+    categories: mappings.length,
+    totalSpent: items.filter((item) => item.amount < 0).reduce((sum, item) => sum + item.amount, 0),
+    topCategories: mappings.slice(0, 4),
+    recentRows: items.slice(0, 6),
+  };
+
+  return {
+    rows: items,
+    mappings,
+    summary,
+  };
+};
+const formatMoney = (value, currency = "RUB") => {
+  try {
+    return new Intl.NumberFormat("ru-RU", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch (error) {
+    return `${value} ${currency}`;
+  }
+};
+const detectCategories = (csvText, currentMappings = []) => {
+  return buildLocalAiData(csvText, currentMappings).mappings.map((source) => {
+    const current = currentMappings.find((item) => item.source === source.source);
+    return current || { id: uid("map"), source: source.source, target: source.source, comment: "" };
+  });
+};
+const dateMatchesEntry = (entry, date) => {
+  if (!entry?.date || !date) return false;
+  if (entry.repeatMonthly) {
+    return entry.date.slice(8, 10) === date.slice(8, 10);
+  }
+  return entry.date === date;
+};
+const findEntryForDate = (entries, date) => {
+  const exact = entries.find((entry) => entry.date === date);
+  if (exact) return exact;
+  return entries.find((entry) => entry.repeatMonthly && entry.date.slice(8, 10) === date.slice(8, 10)) || null;
+};
+const upsertEntry = (entries, nextEntry) => {
+  const next = entries.filter((entry) => entry.id !== nextEntry.id);
+  next.push(nextEntry);
+  return next.sort((left, right) => compareDesc(left.updatedAt || left.date, right.updatedAt || right.date));
+};
+const sortedPosts = (posts, filters) => {
+  const search = filters.search.trim().toLowerCase();
+  const filtered = posts.filter((post) => {
+    if (filters.mode === "archived" && !post.archived) return false;
+    if (filters.mode === "active" && post.archived) return false;
+    if (!search) return true;
+    return `${post.author} ${post.text}`.toLowerCase().includes(search);
+  });
+  const ordered = filtered.sort((left, right) => compareDesc(left.createdAt, right.createdAt));
+  const pinned = ordered.filter((post) => post.pinned && !post.archived);
+  const regular = ordered.filter((post) => !post.pinned);
+  return filters.mode === "archived" ? regular : [...pinned, ...regular];
+};
+const inRange = (date, start, end) => date >= start && date <= end;
+const collectEventsForDate = (state, date) => {
+  const items = [];
+  state.plannerEntries.forEach((entry) => {
+    if (dateMatchesEntry(entry, date)) items.push({ id: `${entry.id}-${date}`, type: "planner", label: "Планировщик трат", text: entry.text });
+  });
+  state.dogsEntries.forEach((entry) => {
+    if (dateMatchesEntry(entry, date)) items.push({ id: `${entry.id}-${date}`, type: "dogs", label: "Собаки", text: entry.text });
+  });
+  state.posts.filter((post) => !post.archived).forEach((post) => {
+    const start = post.startDate || post.createdAt.slice(0, 10);
+    const end = post.endDate || start;
+    if (inRange(date, start, end)) items.push({ id: `${post.id}-${date}`, type: "post", label: "Лента", text: post.text || "Публикация" });
+  });
+  return items;
+};
+const previewEventsForDate = (state, date) => {
+  const items = collectEventsForDate(state, date);
+  return items.slice(0, 2).map((item) => ({
+    id: item.id,
+    type: item.type,
+    label: item.text.split("\n")[0].trim() || item.label,
+  }));
+};
+const monthMatrix = (monthKey) => {
+  const [year, month] = monthKey.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  const days = [];
+  const shift = (first.getDay() + 6) % 7;
+  for (let index = 0; index < shift; index += 1) days.push(null);
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    const iso = new Date(year, month - 1, day, 12, 0, 0).toISOString().slice(0, 10);
+    days.push(iso);
+  }
+  while (days.length % 7) days.push(null);
+  return days;
+};
+const imageSrc = (image) => {
+  if (image?.fileId) {
+    return `https://drive.google.com/thumbnail?id=${encodeURIComponent(image.fileId)}&sz=w1600`;
+  }
+  return image?.imageUrl || "";
+};
+const fetchState = async () => {
+  const response = await fetch(`${DEFAULT_SCRIPT_URL}?action=getState`, { method: "GET" });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось загрузить данные");
+  return normalizeState(data.payload);
+};
+const saveState = async (payload) => {
+  const response = await fetch(DEFAULT_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "saveState", payload }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось сохранить данные");
+  return data;
+};
+const uploadImages = async (files) => {
+  const result = [];
+  for (const file of files) {
+    const prepared = await resizeImageFile(file);
+    const response = await fetch(DEFAULT_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "uploadImage",
+        imageBase64: await readBase64(prepared),
+        mimeType: prepared.type || "application/octet-stream",
+        fileName: prepared.name,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось загрузить изображение");
+    result.push(data.payload);
+  }
+  return result;
+};
+
+function App() {
+  const [state, setState] = useState(() => ({
+    ...clone(DEFAULT_STATE),
+    settings: {
+      ...clone(DEFAULT_STATE).settings,
+      theme: getStoredTheme(),
+    },
+  }));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+
+  useEffect(() => {
+    document.title = "Планировщик";
+    window.history.replaceState(null, "", toHash(routeToView(window.location.hash)));
+    const onHashChange = () => setState((current) => ({ ...current, view: routeToView(window.location.hash) }));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme || "light";
   }, [state.settings.theme]);
 
   useEffect(() => {
-    document.body.dataset.view = state.view || "planner";
-  }, [state.view]);
-
-  useEffect(() => {
-    const routeView = getRouteView();
-    if (window.location.hash !== `#/${routeView}`) {
-      window.location.hash = `/${routeView}`;
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
-
-  useEffect(() => {
-    let isMounted = true;
-    pullRemoteState(state.settings.appsScriptUrl, state.settings.syncToken)
-      .then((remote) => {
-        if (!isMounted || !remote) {
-          return;
-        }
-        setState((current) => mergeState(remote, current.settings.appsScriptUrl, current.settings.syncToken, getRouteView()));
+    let alive = true;
+    fetchState()
+      .then((payload) => {
+        if (!alive) return;
+        const view = routeToView(window.location.hash);
+        setState({
+          ...payload,
+          view,
+          settings: {
+            ...payload.settings,
+            theme: getStoredTheme(),
+          },
+        });
       })
       .catch((error) => {
-        console.error(error);
-        showToast("Не получилось загрузить данные из Apps Script.");
+        if (!alive) return;
+        setToast({ tone: "danger", text: error.message });
       })
       .finally(() => {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (alive) setLoading(false);
       });
     return () => {
-      isMounted = false;
+      alive = false;
     };
   }, []);
 
-  // Keyboard navigation for fullscreen image
   useEffect(() => {
-    if (!postFullscreenImage) return;
+    if (!toast) return undefined;
+    const timeout = window.setTimeout(() => setToast(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
 
-    const handleKeyDown = (event) => {
-      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-        const currentPost = state.posts.find((p) =>
-          p.images && p.images.some((img) => getImageSrc(img, state.settings) === getImageSrc(postFullscreenImage, state.settings))
-        );
-        if (currentPost && currentPost.images) {
-          if (event.key === "ArrowRight" && postFullscreenIndex < currentPost.images.length - 1) {
-            setPostFullscreenImage(currentPost.images[postFullscreenIndex + 1]);
-            setPostFullscreenIndex(postFullscreenIndex + 1);
-          } else if (event.key === "ArrowLeft" && postFullscreenIndex > 0) {
-            setPostFullscreenImage(currentPost.images[postFullscreenIndex - 1]);
-            setPostFullscreenIndex(postFullscreenIndex - 1);
-          }
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [postFullscreenImage, postFullscreenIndex, state.posts]);
-
-  useEffect(() => {
-    setPlannerDraft({
-      date: state.planner.date || "",
-      text: state.planner.text || "",
-      repeatMonthly: state.planner.repeatMonthly || false,
-    });
-  }, [state.planner.date, state.planner.text, state.planner.repeatMonthly]);
-
-  useEffect(() => {
-    setDogsDraft({
-      date: state.dogs.date || "",
-      text: state.dogs.text || "",
-    });
-  }, [state.dogs.date, state.dogs.text]);
-
-  useEffect(() => {
-    function handleDocumentClick(event) {
-      if (themeMenuRef.current && !themeMenuRef.current.contains(event.target)) {
-        setThemeMenuOpen(false);
-      }
-      // Close post modal on click outside
-      if (postModalRef.current && !postModalRef.current.contains(event.target) && postModalOpen) {
-        setPostModalOpen(false);
-      }
-      // Close fullscreen image on click outside
-      if (postFullscreenRef.current && !postFullscreenRef.current.contains(event.target) && postFullscreenImage) {
-        setPostFullscreenImage(null);
-      }
-    }
-    function handleEscape(event) {
-      if (event.key === "Escape") {
-        setThemeMenuOpen(false);
-        setPlannerEditing(false);
-        setDogsEditing(false);
-        setPostModalOpen(false);
-        setPostFullscreenImage(null);
-      }
-    }
-    document.addEventListener("click", handleDocumentClick);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("click", handleDocumentClick);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [postModalOpen, postFullscreenImage]);
-
-  useEffect(() => {
-    function handleHashChange() {
-      const nextView = getRouteView();
-      setState((current) => current.view === nextView ? current : { ...current, view: nextView });
-    }
-    window.addEventListener("hashchange", handleHashChange);
-    return () => {
-      window.removeEventListener("hashchange", handleHashChange);
-    };
-  }, []);
-
-  const filteredPosts = useMemo(() => {
-    return [...state.posts]
-      // Filter by archive status based on active tab
-      .filter((post) => {
-        if (state.feedActiveTab === "archived") {
-          return post.archived === true;
-        } else {
-          return post.archived !== true;
-        }
-      })
-      // Filter by search
-      .filter((post) => {
-        const search = state.feedFilters.search.trim().toLowerCase();
-        if (!search) {
-          return true;
-        }
-        return `${post.text} ${post.dateFrom} ${post.dateTo}`.toLowerCase().includes(search);
-      })
-      // Filter by month
-      .filter((post) => {
-        if (!state.feedFilters.month) {
-          return true;
-        }
-        return expandDateRange(post.dateFrom, post.dateTo).some((date) => date.startsWith(state.feedFilters.month));
-      })
-      // Sort: pinned first (newest), then unpinned (newest)
-      .sort((left, right) => {
-        // Pinned posts come first
-        if (left.pinned !== right.pinned) {
-          return (left.pinned ? 0 : 1) - (right.pinned ? 0 : 1);
-        }
-        // Then sort by creation date (newest first)
-        return right.createdAt.localeCompare(left.createdAt);
-      });
-  }, [state.posts, state.feedFilters, state.feedActiveTab]);
-
-  const metrics = useMemo(() => {
-    return {
-      plannerTitle: state.planner.date ? formatDate(state.planner.date) : "--",
-      plannerSubtitle: state.planner.text
-        ? `Обновлено ${formatDateTime(state.planner.updatedAt || new Date().toISOString())}`
-        : "Нет сохраненной записи",
-      postsCount: String(state.posts.length),
-      postsSubtitle: state.posts.length === 1 ? "1 публикация" : `${state.posts.length} публикаций`,
-      dogsTitle: state.dogs.date ? formatDate(state.dogs.date) : "--",
-      dogsSubtitle: state.dogs.text
-        ? `Обновлено ${formatDateTime(state.dogs.updatedAt || new Date().toISOString())}`
-        : "Нет сохраненной записи",
-      syncMode: "Drive",
-      syncSubtitle: state.settings.lastSyncedAt
-        ? `Автосохранение ${formatDateTime(state.settings.lastSyncedAt)}`
-        : "Автосинхронизация включена",
-    };
-  }, [state]);
-
-  const calendarCells = useMemo(() => buildCalendarCells(state.calendarMonth, state), [state.calendarMonth, state]);
-
-  function showToast(message) {
-    window.clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = window.setTimeout(() => {
-      setToast("");
-    }, 2600);
-  }
-
-  async function commitState(updater, successMessage) {
-    const nextState = typeof updater === "function" ? updater(state) : updater;
-    setState(nextState);
+  const persist = async (nextState, message = "Сохранено") => {
+    if (saving) return false;
+    setSaving(true);
     try {
-      const saved = await saveRemoteState(nextState);
-      setState((current) => ({
-        ...current,
+      const normalized = normalizeState({
+        ...nextState,
         settings: {
-          ...current.settings,
-          lastSyncedAt: saved,
+          ...nextState.settings,
+          theme: getStoredTheme(),
+          lastSyncedAt: nowISO(),
         },
-      }));
+      });
+      const payloadToSave = {
+        ...normalized,
+        settings: {
+          ...normalized.settings,
+          theme: "light",
+        },
+        ai: {
+          ...normalized.ai,
+          csvText: "",
+          categoryMappings: [],
+        },
+      };
+      await saveState(payloadToSave);
+      setState(normalized);
+      setToast({ tone: "success", text: message });
+      return true;
     } catch (error) {
-      console.error(error);
-      showToast("Не получилось синхронизировать данные с Apps Script.");
-      return;
-    }
-    if (successMessage) {
-      showToast(successMessage);
-    }
-  }
-
-  async function handlePlannerSave() {
-    const updatedAt = new Date().toISOString();
-    setPlannerEditing(false);
-    await commitState(
-      {
-        ...state,
-        planner: {
-          date: plannerDraft.date,
-          text: plannerDraft.text.trim(),
-          repeatMonthly: plannerDraft.repeatMonthly,
-          updatedAt,
-        },
-      },
-      "Планировщик трат сохранен."
-    );
-  }
-
-  async function handleDogsSave() {
-    const updatedAt = new Date().toISOString();
-    setDogsEditing(false);
-
-    // Set saving state to block user actions
-    setState((current) => ({
-      ...current,
-      dogs: { ...current.dogs, isSaving: true },
-    }));
-
-    try {
-      await commitState(
-        {
-          ...state,
-          dogs: {
-            date: dogsDraft.date,
-            text: dogsDraft.text.trim(),
-            updatedAt,
-            isLoading: false,
-            isSaving: false,
-          },
-        },
-        "Раздел «Собаки» сохранен."
-      );
+      setToast({ tone: "danger", text: error.message });
+      return false;
     } finally {
-      setState((current) => ({
-        ...current,
-        dogs: { ...current.dogs, isSaving: false },
-      }));
+      setSaving(false);
     }
-  }
+  };
 
-  async function handlePostSubmit(event) {
-    event.preventDefault();
-    const text = postDraft.text.trim();
-    const dateFrom = postDraft.dateFrom || todayIso();
-    const dateTo = postDraft.dateTo && postDraft.dateTo >= dateFrom ? postDraft.dateTo : dateFrom;
-    const images = [...(postDraft.images || [])];
+  const applyLocal = (updater) => {
+    setState((current) => normalizeState(typeof updater === "function" ? updater(current) : updater));
+  };
 
-    // Handle single image URL or file upload
-    if (postDraft.imageUrl.trim()) {
-      if (!images.some(img => img === postDraft.imageUrl.trim())) {
-        images.push(postDraft.imageUrl.trim());
-      }
-    }
+  const setView = (view) => {
+    window.history.replaceState(null, "", toHash(view));
+    setState((current) => ({ ...current, view }));
+  };
 
-    if (postDraft.file) {
-      if (postDraft.file instanceof File) {
-        // File upload will be processed
-        try {
-          const uploadedUrl = await uploadImageFile(postDraft.file, state.settings);
-          if (!images.includes(uploadedUrl)) {
-            images.push(uploadedUrl);
-          }
-        } catch (error) {
-          console.error("Image upload failed:", error);
-          showToast("Не получилось загрузить фото.");
-          return;
-        }
-      }
-    }
-
-    if (!text && images.length === 0) {
-      showToast("Добавь текст или фото для публикации.");
-      return;
-    }
-
-    const nextPost = {
-      id: `post-${crypto.randomUUID()}`,
-      text,
-      author: "Лёша",                // Default author
-      pinned: postDraft.pinned || false,
-      archived: false,               // New posts are not archived
-      images,                        // NEW: Support multiple images
-      dateFrom,
-      dateTo,
-      createdAt: new Date().toISOString(),
-    };
-
-    // Clear modal and draft
-    setPostModalOpen(false);
-    setPostDraft({
-      text: "",
-      dateFrom: "",
-      dateTo: "",
-      imageUrl: "",
-      file: null,
-      pinned: false,
-      images: [],
-    });
-
-    await commitState(
-      {
-        ...state,
-        posts: [nextPost, ...state.posts],
-      },
-      "Публикация добавлена."
-    );
-  }
-
-  async function handleDeletePost(postId) {
-    await commitState(
-      {
-        ...state,
-        posts: state.posts.filter((post) => post.id !== postId),
-      },
-      "Публикация удалена."
-    );
-  }
-
-  async function handlePinPost(postId) {
-    const updatedPosts = state.posts.map((post) =>
-      post.id === postId ? { ...post, pinned: !post.pinned } : post
-    );
-    await commitState(
-      {
-        ...state,
-        posts: updatedPosts,
-      },
-      !state.posts.find(p => p.id === postId).pinned ? "Публикация закреплена." : "Публикация откреплена."
-    );
-  }
-
-  async function handleArchivePost(postId) {
-    const updatedPosts = state.posts.map((post) =>
-      post.id === postId ? { ...post, archived: !post.archived } : post
-    );
-    await commitState(
-      {
-        ...state,
-        posts: updatedPosts,
-      },
-      !state.posts.find(p => p.id === postId).archived ? "Публикация в архиве." : "Публикация восстановлена."
-    );
-  }
-
-  function handleThemeChange(theme) {
-    setThemeMenuOpen(false);
+  const changeTheme = (theme) => {
+    setStoredTheme(theme);
     setState((current) => ({
       ...current,
       settings: {
@@ -459,1070 +588,821 @@ function App() {
         theme,
       },
     }));
-    showToast(`Тема переключена: ${capitalize(theme)}.`);
-  }
+    setThemeMenuOpen(false);
+  };
 
-  function navigateTo(view) {
-    const nextView = normalizeView(view);
-    if (window.location.hash !== `#/${nextView}`) {
-      window.location.hash = `/${nextView}`;
+  const handleCreatePost = async (draft) => {
+    if (saving) return false;
+    setSaving(true);
+    try {
+      const images = draft.files.length ? await uploadImages(draft.files) : [];
+      const nextPost = {
+        id: uid("post"),
+        author: draft.author || "Лёша",
+        text: draft.text.trim(),
+        images,
+        pinned: draft.pinned,
+        archived: false,
+        createdAt: nowISO(),
+        startDate: draft.startDate,
+        endDate: draft.endDate,
+      };
+      const nextState = normalizeState({
+        ...state,
+        posts: [nextPost, ...state.posts],
+      });
+      nextState.settings.lastSyncedAt = nowISO();
+      await saveState({
+        ...nextState,
+        settings: {
+          ...nextState.settings,
+          theme: "light",
+        },
+        ai: {
+          ...nextState.ai,
+          csvText: "",
+          categoryMappings: [],
+        },
+      });
+      setState(nextState);
+      setToast({ tone: "success", text: "Пост опубликован" });
+      return true;
+    } catch (error) {
+      setToast({ tone: "danger", text: error.message });
+      return false;
+    } finally {
+      setSaving(false);
     }
-    setState((current) => ({ ...current, view: nextView }));
-  }
+  };
 
-  function renderPlannerSection() {
-    const emptyText = "Пока пусто. Нажми «Редактировать», чтобы добавить заметку.";
-    return html`
-      <section className="section-stack">
-        <article className="surface">
-          <div className="surface__header">
-            <div>
-              <p className="eyebrow">Planner</p>
-              <h2>Планировщик трат</h2>
-            </div>
-            <div className="editor-bar">
-              <label className="field field--compact">
-                <span>Дата</span>
-                <input
-                  type="date"
-                  value=${plannerEditing ? plannerDraft.date : (state.planner.date || "")}
-                  onInput=${(event) => setPlannerDraft((draft) => ({ ...draft, date: event.target.value }))}
-                  disabled=${!plannerEditing}
-                />
-              </label>
-              <button
-                className=${plannerEditing ? "primary-button" : "ghost-button"}
-                type="button"
-                onClick=${() => plannerEditing ? handlePlannerSave() : setPlannerEditing(true)}
-              >
-                ${plannerEditing ? "Сохранить" : "Редактировать"}
-              </button>
-            </div>
-          </div>
-          <div className="note-meta">
-            <span className="subtle-pill">${state.planner.date ? formatDate(state.planner.date) : "Дата не выбрана"}</span>
-            ${state.planner.repeatMonthly ? html`<span className="subtle-pill">Повторяется ежемесячно</span>` : null}
-          </div>
-          <div className=${`inline-note ${!state.planner.text && !plannerEditing ? "is-empty" : ""} ${plannerEditing ? "is-editing" : ""}`}>
-            ${plannerEditing
-              ? html`
-                  <label className="field">
-                    <span>Текст</span>
-                    <textarea
-                      className="inline-note__editor"
-                      value=${plannerDraft.text}
-                      onInput=${(event) => setPlannerDraft((draft) => ({ ...draft, text: event.target.value }))}
-                      placeholder="Здесь можно вести заметки по тратам, отдельным дням и быстрые рабочие записи."
-                    />
-                  </label>
-                  <label className="field field--checkbox">
-                    <input
-                      type="checkbox"
-                      checked=${plannerDraft.repeatMonthly}
-                      onInput=${(event) => setPlannerDraft((draft) => ({ ...draft, repeatMonthly: event.target.checked }))}
-                    />
-                    <span>Повторять ежемесячно</span>
-                  </label>
-                `
-              : (state.planner.text || emptyText)}
-          </div>
-        </article>
-      </section>
-    `;
-  }
-
-  function renderPlansSection() {
-    return html`
-      <section className="section-stack">
-        <article className="surface">
-          <div className="surface__header">
-            <div>
-              <p className="eyebrow">Plans</p>
-              <h2>Лента</h2>
-            </div>
-            <button
-              className="primary-button"
-              type="button"
-              onClick=${() => setPostModalOpen(true)}
-            >
-              ➕ Создать пост
-            </button>
-          </div>
-
-          <!-- Feed tabs: Active / Archive -->
-          <div className="feed-tabs">
-            <button
-              className=${`feed-tab ${state.feedActiveTab === "active" ? "is-active" : ""}`}
-              onClick=${() => setState((current) => ({ ...current, feedActiveTab: "active" }))}
-            >
-              Активные
-            </button>
-            <button
-              className=${`feed-tab ${state.feedActiveTab === "archived" ? "is-active" : ""}`}
-              onClick=${() => setState((current) => ({ ...current, feedActiveTab: "archived" }))}
-            >
-              Архив
-            </button>
-          </div>
-
-          <!-- Search and filters -->
-          <div className="inline-controls">
-            <label className="field field--compact">
-              <span>Поиск</span>
-              <input
-                type="search"
-                value=${state.feedFilters.search}
-                onInput=${(event) => setState((current) => ({
-                  ...current,
-                  feedFilters: { ...current.feedFilters, search: event.target.value },
-                }))}
-                placeholder="По тексту"
-              />
-            </label>
-            <label className="field field--compact">
-              <span>Месяц</span>
-              <input
-                type="month"
-                value=${state.feedFilters.month}
-                onInput=${(event) => setState((current) => ({
-                  ...current,
-                  feedFilters: { ...current.feedFilters, month: event.target.value },
-                }))}
-              />
-            </label>
-          </div>
-
-          <!-- Feed posts list -->
-          <div className="feed-list">
-            ${filteredPosts.length
-              ? filteredPosts.map((post) => html`
-                  <article key=${post.id} className=${`feed-card ${post.pinned ? "is-pinned" : ""}`}>
-                    <div className="feed-card__top">
-                      <div className="feed-card__meta">
-                        <span className="feed-card__author">${post.author || "Лёша"}</span>
-                        <span className="subtle-pill">${formatDateRange(post.dateFrom, post.dateTo)}</span>
-                      </div>
-                      <div className="feed-card__actions">
-                        <button
-                          className="icon-button-small"
-                          title="Закрепить"
-                          onClick=${() => handlePinPost(post.id)}
-                        >
-                          ${post.pinned ? "📌" : "📍"}
-                        </button>
-                        <button
-                          className="icon-button-small"
-                          title="В архив"
-                          onClick=${() => handleArchivePost(post.id)}
-                        >
-                          📦
-                        </button>
-                        <button
-                          className="icon-button-small danger"
-                          title="Удалить"
-                          onClick=${() => handleDeletePost(post.id)}
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    </div>
-                    ${post.text ? html`<div className="feed-card__text">${post.text}</div>` : null}
-                    ${post.images && post.images.length > 0 ? html`
-                      <div className="feed-card__images" style="grid-template-columns: repeat(${Math.min(post.images.length, 3)}, 1fr);">
-                        ${post.images.map((image, index) => html`
-                          <img
-                            key=${index}
-                            className="feed-card__image"
-                            src=${getImageSrc(image, state.settings)}
-                            alt="Публикация"
-                            onClick=${() => {
-                              setPostFullscreenImage(image);
-                              setPostFullscreenIndex(index);
-                            }}
-                            style="cursor: pointer;"
-                          />
-                        `)}
-                      </div>
-                    ` : null}
-                  </article>
-                `)
-              : html`
-                  <div className="empty-state">
-                    <h3>${state.feedActiveTab === "active" ? "Лента пока пустая" : "Архив пока пуст"}</h3>
-                    <p>${state.feedActiveTab === "active" ? "Добавь первую публикацию с текстом, датами и фото при желании." : "Когда-нибудь архивные записи появятся здесь."}</p>
-                  </div>
-                `}
-          </div>
-        </article>
-      </section>
-
-      <!-- Post creation modal -->
-      ${postModalOpen ? html`
-        <div className="modal-overlay" ref=${postModalRef}>
-          <div className="modal-content">
-            <div className="modal-header">
-              <h2>Новый пост</h2>
-              <button
-                className="modal-close"
-                type="button"
-                onClick=${() => setPostModalOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-
-            <form className="modal-form" onSubmit=${handlePostSubmit}>
-              <!-- Photo upload -->
-              <div className="modal-section">
-                <h3>Фото</h3>
-                <div className="photo-upload">
-                  <label className="photo-upload-area">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onInput=${(event) => {
-                        const files = Array.from(event.target.files || []);
-                        files.forEach(file => {
-                          // TODO: Queue file for upload
-                          setPostDraft((draft) => ({
-                            ...draft,
-                            file: file,  // For now, handle last file
-                          }));
-                        });
-                      }}
-                      style="display: none;"
-                    />
-                    📸 Добавить фото
-                  </label>
-                  ${postDraft.imageUrl || postDraft.file ? html`
-                    <div className="photo-preview">
-                      ${postDraft.file ? html`<span>${postDraft.file.name}</span>` : null}
-                      ${postDraft.imageUrl ? html`<span>${postDraft.imageUrl}</span>` : null}
-                    </div>
-                  ` : null}
-                </div>
-
-                <label className="field">
-                  <span>Или ссылка на фото</span>
-                  <input
-                    type="url"
-                    value=${postDraft.imageUrl}
-                    onInput=${(event) => setPostDraft((draft) => ({ ...draft, imageUrl: event.target.value }))}
-                    placeholder="https://..."
-                  />
-                </label>
-              </div>
-
-              <!-- Text -->
-              <div className="modal-section">
-                <label className="field">
-                  <span>Текст</span>
-                  <textarea
-                    rows="5"
-                    value=${postDraft.text}
-                    onInput=${(event) => setPostDraft((draft) => ({ ...draft, text: event.target.value }))}
-                    placeholder="Напишите что-нибудь"
-                  />
-                </label>
-              </div>
-
-              <!-- Emoji button -->
-              <div className="modal-section">
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick=${() => {
-                    // Simple emoji insertion via prompt
-                    const emoji = prompt("Введите смайлик (например: 😊 🎉 ❤️):");
-                    if (emoji && emoji.trim()) {
-                      setPostDraft((draft) => ({ ...draft, text: draft.text + " " + emoji }));
-                    }
-                  }}
-                >
-                  😊 Добавить смайлик
-                </button>
-              </div>
-
-              <!-- Date range -->
-              <div className="modal-section">
-                <div className="split-fields">
-                  <label className="field">
-                    <span>Начало</span>
-                    <input
-                      type="date"
-                      value=${postDraft.dateFrom}
-                      onInput=${(event) => setPostDraft((draft) => ({ ...draft, dateFrom: event.target.value }))}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Окончание</span>
-                    <input
-                      type="date"
-                      value=${postDraft.dateTo}
-                      onInput=${(event) => setPostDraft((draft) => ({ ...draft, dateTo: event.target.value }))}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <!-- Pin checkbox -->
-              <div className="modal-section">
-                <label className="field field--checkbox">
-                  <input
-                    type="checkbox"
-                    checked=${postDraft.pinned}
-                    onInput=${(event) => setPostDraft((draft) => ({ ...draft, pinned: event.target.checked }))}
-                  />
-                  <span>Закрепить</span>
-                </label>
-              </div>
-
-              <!-- Publish button -->
-              <div className="modal-footer">
-                <button className="primary-button" type="submit">Опубликовать</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ` : null}
-
-      <!-- Fullscreen image viewer -->
-      ${postFullscreenImage ? html`
-        <div
-          className="image-fullscreen-overlay"
-          ref=${postFullscreenRef}
-          onClick=${() => setPostFullscreenImage(null)}
-        >
-          <button
-            className="fullscreen-close"
-            onClick=${() => setPostFullscreenImage(null)}
-          >
-            ✕
-          </button>
-          <img
-            src=${getImageSrc(postFullscreenImage, state.settings)}
-            alt="Fullscreen"
-            className="fullscreen-image"
-            onClick=${(e) => e.stopPropagation()}
-          />
-        </div>
-      ` : null}
-    `;
-  }
-
-  function renderDogsSection() {
-    const emptyText = "Пока пусто. Здесь можно вести отдельные заметки по этому разделу.";
-    const isDisabled = state.dogs.isSaving;
-
-    return html`
-      <section className="section-stack">
-        <article className="surface">
-          <div className="surface__header">
-            <div>
-              <p className="eyebrow">Dogs</p>
-              <h2>Собаки</h2>
-            </div>
-            <div className="editor-bar">
-              <label className="field field--compact">
-                <span>Дата</span>
-                <input
-                  type="date"
-                  value=${dogsEditing ? dogsDraft.date : (state.dogs.date || "")}
-                  onInput=${(event) => !isDisabled && setDogsDraft((draft) => ({ ...draft, date: event.target.value }))}
-                  disabled=${!dogsEditing || isDisabled}
-                />
-              </label>
-              <button
-                className=${dogsEditing ? "primary-button" : "ghost-button"}
-                type="button"
-                onClick=${() => dogsEditing ? handleDogsSave() : setDogsEditing(true)}
-                disabled=${isDisabled}
-              >
-                ${isDisabled ? "⏳ Сохранение..." : (dogsEditing ? "Сохранить" : "Редактировать")}
-              </button>
-            </div>
-          </div>
-          <div className="note-meta">
-            <span className="subtle-pill">${state.dogs.date ? formatDate(state.dogs.date) : "Дата не выбрана"}</span>
-            ${state.dogs.isLoading ? html`<span className="subtle-pill">Загружаю...</span>` : null}
-          </div>
-
-          <!-- Loading skeleton -->
-          ${state.dogs.isLoading ? html`
-            <div className="section-loading">
-              <div className="skeleton-block" style="height: 300px;"></div>
-            </div>
-          ` : null}
-
-          <!-- Content or save overlay -->
-          ${isDisabled ? html`<div className="save-overlay"></div>` : null}
-
-          <div className=${`inline-note ${!state.dogs.text && !dogsEditing ? "is-empty" : ""} ${dogsEditing ? "is-editing" : ""} ${isDisabled ? "is-saving" : ""}`}>
-            ${dogsEditing
-              ? html`
-                  <label className="field">
-                    <span>Текст</span>
-                    <textarea
-                      className="inline-note__editor"
-                      value=${dogsDraft.text}
-                      onInput=${(event) => !isDisabled && setDogsDraft((draft) => ({ ...draft, text: event.target.value }))}
-                      disabled=${isDisabled}
-                      placeholder="Отдельный редактор для раздела «Собаки»."
-                    />
-                  </label>
-                `
-              : (state.dogs.text || emptyText)}
-          </div>
-        </article>
-      </section>
-    `;
-  }
-
-  function renderCalendarSection() {
-    return html`
-      <section className="section-stack">
-        <article className="surface">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Calendar</p>
-              <h2>Проверка плана по датам</h2>
-            </div>
-            <div className="inline-controls">
-              <label className="field field--compact">
-                <span>Показывать месяц</span>
-                <input
-                  type="month"
-                  value=${state.calendarMonth}
-                  onInput=${(event) => setState((current) => ({
-                    ...current,
-                    calendarMonth: event.target.value || getCurrentMonth(),
-                  }))}
-                />
-              </label>
-            </div>
-          </div>
-          <div className="calendar-shell">
-            <div className="calendar-grid calendar-grid--weekdays">
-              ${WEEKDAYS.map((weekday) => html`<div key=${weekday} className="weekday-cell">${weekday}</div>`)}
-            </div>
-            <div className="calendar-grid">
-              ${calendarCells.map((cell) => html`
-                <article key=${cell.key} className=${`calendar-cell ${cell.muted ? "is-muted" : ""} ${cell.today ? "is-today" : ""}`}>
-                  <span className="calendar-date">${cell.day}</span>
-                  <div className="calendar-events">
-                    ${cell.events.slice(0, 4).map((event) => html`
-                      <div key=${event.key} className=${`calendar-event calendar-event--${event.tone}`}>${event.label}</div>
-                    `)}
-                    ${cell.events.length > 4 ? html`<div className="calendar-more">+${cell.events.length - 4} еще</div>` : null}
-                  </div>
-                </article>
-              `)}
-            </div>
-          </div>
-        </article>
-      </section>
-    `;
-  }
-
-  function renderAIAnalysisSection() {
-    return html`
-      <section className="section-stack">
-        <article className="surface">
-          <div className="surface__header">
-            <div>
-              <p className="eyebrow">AI Analysis</p>
-              <h2>ИИ-анализ</h2>
-            </div>
-          </div>
-
-          ${!state.aiAnalysis.originalData || state.aiAnalysis.originalData.length === 0 ? html`
-            <!-- Upload CSV section -->
-            <div className="ai-upload-section">
-              <h3>Загрузить CSV файл</h3>
-              <label className="ai-upload-area">
-                <input
-                  type="file"
-                  accept=".csv"
-                  onInput=${async (event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    try {
-                      setState((current) => ({
-                        ...current,
-                        aiAnalysis: { ...current.aiAnalysis, isLoading: true, error: "" },
-                      }));
-                      const text = await file.text();
-                      const rows = text.split("\n").filter(r => r.trim());
-                      const headers = rows[0].split(",");
-                      const data = rows.slice(1).map((row, index) => ({
-                        id: `row-${index}`,
-                        originalData: row.split(",").reduce((acc, val, i) => {
-                          acc[headers[i]?.trim() || `col${i}`] = val.trim();
-                          return acc;
-                        }, {}),
-                        suggestedCategory: "",
-                        finalCategory: "",
-                        comment: "",
-                      }));
-                      setState((current) => ({
-                        ...current,
-                        aiAnalysis: { ...current.aiAnalysis, originalData: data, uploadedFile: file.name },
-                      }));
-                      showToast("CSV файл загружен успешно. Отправляю на анализ ИИ...");
-                      // TODO: Call AI API here
-                    } catch (error) {
-                      setState((current) => ({
-                        ...current,
-                        aiAnalysis: { ...current.aiAnalysis, error: "Ошибка загрузки файла", isLoading: false },
-                      }));
-                      showToast("Не получилось загрузить файл.");
-                    }
-                  }}
-                  style="display: none;"
-                />
-                📄 Выберите CSV файл или перетащите сюда
-              </label>
-            </div>
-          ` : html`
-            <!-- Analysis results section -->
-            <div className="ai-analysis-results">
-              <h3>Категоризация</h3>
-
-              ${state.aiAnalysis.isLoading ? html`
-                <div className="ai-loading-skeleton">
-                  <div className="skeleton-block"></div>
-                  <div className="skeleton-block"></div>
-                  <div className="skeleton-block"></div>
-                </div>
-              ` : html`
-                <div className="ai-categories">
-                  ${Array.from(new Set(state.aiAnalysis.originalData.map(item => item.suggestedCategory || "Без категории"))).map(category => html`
-                    <div className="ai-category-block" key=${category}>
-                      <h4>${category}</h4>
-                      <div className="ai-category-items">
-                        ${state.aiAnalysis.originalData
-                          .filter(item => (item.suggestedCategory || "Без категории") === category)
-                          .map(item => html`
-                            <div className="ai-item" key=${item.id}>
-                              <div className="ai-item-content">
-                                ${Object.entries(item.originalData).map(([key, value]) => html`
-                                  <div key=${key} className="ai-item-field">
-                                    <strong>${key}:</strong> ${value}
-                                  </div>
-                                `)}
-                              </div>
-                              <textarea
-                                placeholder="Добавить комментарий"
-                                value=${item.comment || ""}
-                                onInput=${(event) => {
-                                  setState((current) => ({
-                                    ...current,
-                                    aiAnalysis: {
-                                      ...current.aiAnalysis,
-                                      comments: { ...current.aiAnalysis.comments, [item.id]: event.target.value },
-                                    },
-                                  }));
-                                }}
-                              />
-                            </div>
-                          `)}
-                      </div>
-                    </div>
-                  `)}
-                </div>
-
-                <!-- Send to AI for analysis -->
-                <div className="ai-analysis-section">
-                  <h3>Запрос анализа</h3>
-                  <textarea
-                    className="ai-prompt-input"
-                    value=${state.aiAnalysis.analysisPrompt}
-                    onInput=${(event) => setState((current) => ({
-                      ...current,
-                      aiAnalysis: { ...current.aiAnalysis, analysisPrompt: event.target.value },
-                    }))}
-                    placeholder="Опишите, как вы хотели бы проанализировать эти данные"
-                    rows="4"
-                  />
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick=${async () => {
-                      // TODO: Call AI API with analysis prompt
-                      showToast("Отправка запроса на анализ...");
-                    }}
-                  >
-                    Отправить на анализ
-                  </button>
-                </div>
-
-                ${state.aiAnalysis.analysisResult ? html`
-                  <div className="ai-result-section">
-                    <h3>Результат анализа</h3>
-                    <div className="ai-result-text">${state.aiAnalysis.analysisResult}</div>
-                  </div>
-                ` : null}
-              `}
-            </div>
-          `}
-        </article>
-      </section>
-    `;
-  }
-
-  function renderCurrentPage() {
-    if (state.view === "plans") {
-      return html`<section id="plansPage">${renderPlansSection()}</section>`;
-    }
-    if (state.view === "dogs") {
-      return html`<section id="dogsPage">${renderDogsSection()}</section>`;
-    }
-    if (state.view === "calendar") {
-      return html`<section id="calendarPage">${renderCalendarSection()}</section>`;
-    }
-    if (state.view === "ai-analysis") {
-      return html`<section id="aiAnalysisPage">${renderAIAnalysisSection()}</section>`;
-    }
-    return html`<section id="plannerPage">${renderPlannerSection()}</section>`;
-  }
+  const page = loading
+    ? html`<${LoadingPage} view=${state.view} />`
+    : state.view === "planner"
+      ? html`<${NotePage} kind="planner" title="Планировщик трат" state=${state} onSave=${persist} onLocalChange=${applyLocal} saving=${saving} />`
+      : state.view === "plans"
+        ? html`<${FeedPage} state=${state} onSave=${persist} onLocalChange=${applyLocal} onCreatePost=${handleCreatePost} saving=${saving} />`
+        : state.view === "dogs"
+          ? html`<${NotePage} kind="dogs" title="Собаки" state=${state} onSave=${persist} onLocalChange=${applyLocal} saving=${saving} />`
+          : state.view === "calendar"
+            ? html`<${CalendarPage} state=${state} onSave=${persist} onLocalChange=${applyLocal} />`
+            : html`<${AiPage} state=${state} onSave=${persist} onLocalChange=${applyLocal} saving=${saving} />`;
 
   return html`
-    <div className="app-shell">
-      <header>
-        <div className="topbar">
-          <div className="brand">
-            <span className="brand__dot"></span>
-            <div>
-              <p className="eyebrow">Budget planning workspace</p>
-              <h1>Budget Flow Planner</h1>
-            </div>
-          </div>
-          <div className="topbar__actions">
-            <div className="theme-menu" ref=${themeMenuRef}>
-              <button
-                className="icon-button"
-                type="button"
-                aria-haspopup="true"
-                aria-expanded=${themeMenuOpen ? "true" : "false"}
-                onClick=${() => setThemeMenuOpen((open) => !open)}
-              >
-                ◐
-              </button>
-              ${themeMenuOpen ? html`
-                <div className="theme-menu__list">
-                  ${THEMES.map((theme) => html`
-                    <button
-                      key=${theme}
-                      className=${`theme-option ${state.settings.theme === theme ? "is-active" : ""}`}
-                      type="button"
-                      onClick=${() => handleThemeChange(theme)}
-                    >
-                      ${capitalize(theme)}
-                    </button>
-                  `)}
-                </div>
-              ` : null}
-            </div>
-          </div>
-        </div>
-
-        <nav className="section-nav">
-          ${[
-            ["planner", "Планировщик трат"],
-            ["plans", "Лента"],
-            ["dogs", "Собаки"],
-            ["calendar", "Календарь"],
-            ["ai-analysis", "ИИ-анализ"],
-          ].map(([value, label]) => html`
-            <a
-              key=${value}
-              href=${`#/${value}`}
-              className=${`section-nav__button ${state.view === value ? "is-active" : ""}`}
-              onClick=${(event) => {
-                event.preventDefault();
-                navigateTo(value);
-              }}
-            >
-              ${label}
-            </a>
+    <div className=${`app-shell${saving ? " is-busy" : ""}`}>
+      <header className="topbar">
+        <nav className="nav-tabs" aria-label="Навигация">
+          ${NAV_ITEMS.map((item) => html`
+            <button
+              key=${item.id}
+              type="button"
+              className=${`nav-tab${state.view === item.id ? " is-active" : ""}`}
+              onClick=${() => setView(item.id)}
+              disabled=${saving}
+            >${item.label}</button>
           `)}
         </nav>
-
-        <section className="metrics-grid">
-          <article className="metric-card metric-card--planner">
-            <span>Планировщик трат</span>
-            <strong>${metrics.plannerTitle}</strong>
-            <small>${metrics.plannerSubtitle}</small>
-          </article>
-          <article className="metric-card metric-card--plans">
-            <span>Лента</span>
-            <strong>${metrics.postsCount}</strong>
-            <small>${metrics.postsSubtitle}</small>
-          </article>
-          <article className="metric-card metric-card--dogs">
-            <span>Собаки</span>
-            <strong>${metrics.dogsTitle}</strong>
-            <small>${metrics.dogsSubtitle}</small>
-          </article>
-          <article className="metric-card metric-card--sync">
-            <span>Синхронизация</span>
-            <strong>${metrics.syncMode}</strong>
-            <small>${metrics.syncSubtitle}</small>
-          </article>
-        </section>
+        <div className="theme-menu">
+          <button type="button" className="icon-button" onClick=${() => setThemeMenuOpen((value) => !value)} disabled=${saving}>◐</button>
+          ${themeMenuOpen && html`
+            <div className="theme-menu__list">
+              ${THEMES.map((theme) => html`
+                <button
+                  key=${theme.id}
+                  type="button"
+                  className=${`theme-option${state.settings.theme === theme.id ? " is-active" : ""}`}
+                  onClick=${() => changeTheme(theme.id)}
+                >${theme.label}</button>
+              `)}
+            </div>
+          `}
+        </div>
       </header>
-
-      ${loading ? html`<div className="loading-state">Загружаю данные из Apps Script...</div>` : null}
-
-      <main className="section-stack">
-        ${renderCurrentPage()}
-      </main>
-
-      <div className=${`toast ${toast ? "is-visible" : ""}`}>${toast}</div>
+      ${page}
+      ${toast && html`<div className=${`toast toast--${toast.tone}`}>${toast.text}</div>`}
     </div>
   `;
 }
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return structuredClone(defaultState);
-    }
-    return mergeState(JSON.parse(raw), APPS_SCRIPT_URL, "", getRouteView());
-  } catch (error) {
-    console.error(error);
-    return structuredClone(defaultState);
-  }
+function LoadingPage() {
+  return html`
+    <main className="page">
+      <section className="panel skeleton-panel">
+        <div className="skeleton skeleton-title"></div>
+        <div className="skeleton skeleton-line"></div>
+        <div className="skeleton skeleton-line short"></div>
+      </section>
+      <section className="panel skeleton-grid">
+        <div className="skeleton skeleton-card"></div>
+        <div className="skeleton skeleton-card"></div>
+        <div className="skeleton skeleton-card"></div>
+      </section>
+    </main>
+  `;
 }
 
-function mergeState(raw, appsScriptUrl, syncToken, forcedView) {
-  const next = structuredClone(defaultState);
-  next.settings = {
-    ...next.settings,
-    ...(raw.settings || {}),
-    appsScriptUrl: appsScriptUrl || raw.settings?.appsScriptUrl || APPS_SCRIPT_URL,
-    syncToken: syncToken || raw.settings?.syncToken || "",
-  };
-  next.view = normalizeView(forcedView || raw.view || next.view);
-  next.calendarMonth = raw.calendarMonth || next.calendarMonth;
-  next.feedFilters = {
-    search: raw.feedFilters?.search || raw.search || "",
-    month: raw.feedFilters?.month || raw.monthFilter || "",
-  };
-  next.feedActiveTab = raw.feedActiveTab || "active";  // NEW
-  next.planner = {
-    ...next.planner,
-    ...(raw.planner || {}),
-    repeatMonthly: raw.planner?.repeatMonthly || false,  // NEW
-  };
-  next.dogs = {
-    ...next.dogs,
-    ...(raw.dogs || {}),
-    isLoading: false,       // Reset loading states
-    isSaving: false,
-  };
-
-  // Migrate old posts to new structure
-  next.posts = Array.isArray(raw.posts) ? raw.posts.map(post => {
-    // Backward compatibility: convert old single image to images array
-    const images = [];
-    if (post.image) {
-      images.push(typeof post.image === 'string' ? post.image : post.image);
-    }
-    return {
-      ...post,
-      author: post.author || "Лёша",              // Default author
-      pinned: post.pinned || false,                // Default not pinned
-      archived: post.archived || false,            // Default not archived
-      images: images.length > 0 ? images : [],    // Use new images array
-      // Keep old image field for backward compat if needed
-    };
-  }) : [];
-  next.aiAnalysis = { ...defaultState.aiAnalysis, ...(raw.aiAnalysis || {}) };  // NEW
-  return next;
+function ButtonSpinner() {
+  return html`<span className="button-spinner" aria-hidden="true"></span>`;
 }
 
-async function pullRemoteState(appsScriptUrl, syncToken) {
-  const url = new URL(appsScriptUrl);
-  url.searchParams.set("action", "getState");
-  if (syncToken) {
-    url.searchParams.set("token", syncToken);
-  }
-  const response = await fetch(url.toString(), { method: "GET" });
-  const data = await response.json();
-  if (!response.ok || !data.ok || !data.payload) {
-    throw new Error(data.message || "No payload");
-  }
-  return data.payload;
-}
+function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
+  const dateKey = kind === "planner" ? "plannerSelectedDate" : "dogsSelectedDate";
+  const listKey = kind === "planner" ? "plannerEntries" : "dogsEntries";
+  const selectedDate = state[dateKey] || todayISO();
+  const entries = state[listKey];
+  const activeEntry = useMemo(() => findEntryForDate(entries, selectedDate), [entries, selectedDate]);
+  const [editing, setEditing] = useState(!activeEntry);
+  const [draft, setDraft] = useState({ text: "", repeatMonthly: false });
 
-async function saveRemoteState(state) {
-  const syncedAt = new Date().toISOString();
-  const payloadState = {
-    ...state,
-    settings: {
-      ...state.settings,
-      lastSyncedAt: syncedAt,
-    },
-  };
-  const response = await fetch(state.settings.appsScriptUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify({
-      action: "saveState",
-      token: state.settings.syncToken,
-      payload: exportState(payloadState),
-    }),
-  });
-  const data = await response.json();
-  if (!response.ok || !data.ok) {
-    throw new Error(data.message || "Save failed");
-  }
-  return syncedAt;
-}
-
-async function uploadImageFile(file, settings) {
-  const dataUrl = await readFileAsDataUrl(file);
-  const [meta, imageBase64] = String(dataUrl).split(",");
-  const mimeMatch = meta.match(/^data:(.+);base64$/);
-  const mimeType = mimeMatch ? mimeMatch[1] : (file.type || "application/octet-stream");
-
-  const response = await fetch(settings.appsScriptUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify({
-      action: "uploadImage",
-      token: settings.syncToken,
-      fileName: file.name,
-      mimeType,
-      imageBase64,
-    }),
-  });
-
-  const data = await response.json();
-  if (!response.ok || !data.ok || !data.payload) {
-    throw new Error(data.message || "Image upload failed");
-  }
-  return data.payload;
-}
-
-function exportState(state) {
-  return {
-    settings: {
-      theme: state.settings.theme,
-      lastSyncedAt: state.settings.lastSyncedAt,
-    },
-    view: state.view,
-    calendarMonth: state.calendarMonth,
-    feedFilters: state.feedFilters,
-    feedActiveTab: state.feedActiveTab,  // NEW
-    planner: state.planner,
-    dogs: { date: state.dogs.date, text: state.dogs.text, updatedAt: state.dogs.updatedAt },  // Don't export loading states
-    posts: state.posts,
-    aiAnalysis: {
-      ...state.aiAnalysis,
-      isLoading: false,  // Reset loading state when exporting
-      error: "",        // Don't persist error state
-    },
-  };
-}
-
-function buildCalendarCells(month, state) {
-  const [year, monthIndex] = month.split("-").map(Number);
-  const firstDay = new Date(year, monthIndex - 1, 1);
-  const lastDay = new Date(year, monthIndex, 0);
-  const firstWeekday = normalizeWeekday(firstDay.getDay());
-  const daysInMonth = lastDay.getDate();
-  const leadingDays = firstWeekday;
-  const trailingDays = (7 - ((leadingDays + daysInMonth) % 7 || 7)) % 7;
-  const cells = [];
-
-  for (let index = leadingDays; index > 0; index -= 1) {
-    cells.push(createCalendarCell(new Date(year, monthIndex - 1, 1 - index), true, state));
-  }
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push(createCalendarCell(new Date(year, monthIndex - 1, day), false, state));
-  }
-  for (let day = 1; day <= trailingDays; day += 1) {
-    cells.push(createCalendarCell(new Date(year, monthIndex - 1, daysInMonth + day), true, state));
-  }
-
-  return cells;
-}
-
-function createCalendarCell(date, muted, state) {
-  const iso = toIsoDate(date);
-  const events = [];
-
-  // Add planner event - only if date matches, or if repeat monthly and same month/day
-  if (state.planner.text) {
-    if (state.planner.repeatMonthly) {
-      // Check if same month/day as planner date
-      const [planYear, planMonth, planDay] = state.planner.date.split("-").map(Number);
-      const [dateYear, dateMonth, dateDay] = iso.split("-").map(Number);
-      if (dateMonth === planMonth && dateDay === planDay) {
-        events.push({
-          key: `planner-${iso}`,
-          tone: "planner",
-          label: `Планировщик: ${snippet(state.planner.text)}`,
-        });
-      }
-    } else if (state.planner.date === iso) {
-      // Only show on specific date if not repeating
-      events.push({
-        key: `planner-${iso}`,
-        tone: "planner",
-        label: `Планировщик: ${snippet(state.planner.text)}`,
-      });
-    }
-  }
-
-  if (state.dogs.text && state.dogs.date === iso) {
-    events.push({
-      key: `dogs-${iso}`,
-      tone: "dogs",
-      label: `Собаки: ${snippet(state.dogs.text)}`,
+  useEffect(() => {
+    setEditing(!activeEntry);
+    setDraft({
+      text: activeEntry?.text || "",
+      repeatMonthly: Boolean(activeEntry?.repeatMonthly),
     });
-  }
+  }, [activeEntry?.id, activeEntry?.updatedAt, selectedDate]);
 
-  state.posts.forEach((post) => {
-    if (expandDateRange(post.dateFrom, post.dateTo).includes(iso)) {
-      events.push({
-        key: `${post.id}-${iso}`,
-        tone: "plans",
-        label: snippet(post.text || "Публикация"),
-      });
-    }
-  });
-
-  return {
-    key: iso,
-    day: date.getDate(),
-    muted,
-    today: iso === todayIso(),
-    events,
+  const saveEntry = async () => {
+    const entryDate = draft.repeatMonthly && activeEntry?.repeatMonthly ? activeEntry.date : selectedDate;
+    const nextEntry = {
+      id: activeEntry?.id || uid(kind),
+      date: entryDate,
+      text: draft.text.trim(),
+      repeatMonthly: draft.repeatMonthly,
+      updatedAt: nowISO(),
+    };
+    const nextState = {
+      ...state,
+      [dateKey]: selectedDate,
+      [listKey]: upsertEntry(entries, nextEntry),
+    };
+    const saved = await onSave(nextState, "Запись сохранена");
+    if (saved) setEditing(false);
   };
+
+  return html`
+    <main className="page">
+      <section className="panel note-panel">
+        <div className="page-head">
+          <div>
+            <h2>${title}</h2>
+            <p>${activeEntry ? (activeEntry.repeatMonthly ? "Повторяется каждый месяц" : formatDate(selectedDate)) : `Новая запись на ${formatDate(selectedDate)}`}</p>
+          </div>
+          <div className="note-toolbar">
+            <label className="date-field">
+              <span>Дата</span>
+              <input
+                type="date"
+                value=${selectedDate}
+                onInput=${(event) => onLocalChange({ ...state, [dateKey]: event.target.value || todayISO() })}
+                disabled=${saving}
+              />
+            </label>
+            ${!editing && html`
+              <button type="button" className="button button--blue button--equal" onClick=${() => setEditing(true)} disabled=${saving}>Редактировать</button>
+            `}
+            ${editing && html`
+              <button type="button" className="button button--red button--equal" onClick=${saveEntry} disabled=${saving || !draft.text.trim()}>
+                ${saving ? html`<${ButtonSpinner} />` : null}
+                <span>${saving ? "Сохранение..." : "Сохранить"}</span>
+              </button>
+            `}
+          </div>
+        </div>
+        <div className="editor-card">
+          ${editing ? html`
+            <div className="editor-stack">
+              <textarea
+                className="editor-textarea"
+                value=${draft.text}
+                onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+                placeholder="Запишите расходы, важные суммы, напоминания"
+                disabled=${saving}
+              ></textarea>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked=${draft.repeatMonthly}
+                  onChange=${(event) => setDraft((current) => ({ ...current, repeatMonthly: event.target.checked }))}
+                  disabled=${saving}
+                />
+                <span>Повторять ежемесячно</span>
+              </label>
+            </div>
+          ` : html`
+            <div className="note-view">
+              <div className="note-date-pill">${activeEntry?.repeatMonthly ? "Каждый месяц" : formatDate(selectedDate)}</div>
+              <div className="note-text">${activeEntry?.text || "На эту дату пока нет записи."}</div>
+            </div>
+          `}
+        </div>
+      </section>
+    </main>
+  `;
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("File read failed"));
-    reader.readAsDataURL(file);
+function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState("");
+  const [lightbox, setLightbox] = useState(null);
+  const posts = useMemo(() => sortedPosts([...state.posts], state.feedFilters), [state.posts, state.feedFilters]);
+  const isArchived = state.feedFilters.mode === "archived";
+
+  useEffect(() => {
+    if (!menuOpenId) return undefined;
+    const handleOutside = (event) => {
+      if (!event.target.closest(".post-menu-wrap")) {
+        setMenuOpenId("");
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [menuOpenId]);
+
+  const updatePost = (postId, patch, message) => {
+    const nextState = {
+      ...state,
+      posts: state.posts.map((post) => (post.id === postId ? { ...post, ...patch } : post)),
+    };
+    setMenuOpenId("");
+    onSave(nextState, message);
+  };
+
+  const deletePost = (postId) => {
+    const nextState = { ...state, posts: state.posts.filter((post) => post.id !== postId) };
+    setMenuOpenId("");
+    onSave(nextState, "Пост удалён");
+  };
+
+  return html`
+    <main className="page page--wide">
+      <section className="panel composer-bar">
+        <button type="button" className="create-post create-post--wide" onClick=${() => setModalOpen(true)} disabled=${saving}>
+          <span className="create-post__plus">+</span>
+          <span>Создать пост</span>
+        </button>
+        <div className="composer-actions">
+          <label className="search-shell">
+            <span className="search-shell__icon">⌕</span>
+            <input
+              type="search"
+              value=${state.feedFilters.search}
+              onInput=${(event) => onLocalChange({ ...state, feedFilters: { ...state.feedFilters, search: event.target.value } })}
+              placeholder="Поиск"
+              disabled=${saving}
+            />
+          </label>
+        </div>
+      </section>
+      <section className="panel feed-board">
+        <div className="feed-board__head">
+          <div className="feed-switches">
+            <button
+              type="button"
+              className=${`feed-switch${!isArchived ? " is-active" : ""}`}
+              onClick=${() => onLocalChange({ ...state, feedFilters: { ...state.feedFilters, mode: "active" } })}
+              disabled=${saving}
+            >Активные</button>
+            <button
+              type="button"
+              className=${`feed-switch${isArchived ? " is-active" : ""}`}
+              onClick=${() => onLocalChange({ ...state, feedFilters: { ...state.feedFilters, mode: "archived" } })}
+              disabled=${saving}
+            >Архив</button>
+          </div>
+          <div className="feed-board__meta">${isArchived ? "Архивные записи" : "Актуальные публикации"}</div>
+        </div>
+        <div className="feed-stack feed-stack--board">
+          ${posts.length
+            ? posts.map((post, index) => html`
+              <article key=${post.id} className=${`post-card post-card--flat${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
+                <div className="post-head">
+                  <div>
+                    <div className="post-author">${post.author || "Лёша"}</div>
+                    ${(post.pinned || post.archived) ? html`<div className="post-meta">${post.pinned ? "Закреплено" : "Архив"}</div>` : null}
+                  </div>
+                  <div className="post-menu-wrap">
+                    <button type="button" className="menu-button" onClick=${() => setMenuOpenId((value) => value === post.id ? "" : post.id)} disabled=${saving}>⋯</button>
+                    ${menuOpenId === post.id && html`
+                      <div className="post-menu">
+                        <button type="button" className="post-menu__item" onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплён" : "Пост закреплён")}>
+                          <span className="post-menu__icon">📌</span>
+                          <span className="post-menu__label">${post.pinned ? "Открепить" : "Закрепить"}</span>
+                        </button>
+                        <button type="button" className="post-menu__item" onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращён из архива" : "Пост отправлен в архив")}>
+                          <span className="post-menu__icon">🗃</span>
+                          <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
+                        </button>
+                        <button type="button" className="post-menu__item is-danger" onClick=${() => deletePost(post.id)}>
+                          <span className="post-menu__icon">🗑</span>
+                          <span className="post-menu__label">Удалить</span>
+                        </button>
+                      </div>
+                    `}
+                  </div>
+                </div>
+                ${post.images?.length ? html`
+                  <div className=${`post-gallery gallery-${Math.min(post.images.length, 4)}`}>
+                    ${post.images.map((image) => html`
+                      <button key=${image.fileId || image.imageUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
+                        <img src=${imageSrc(image)} alt="Изображение публикации" />
+                      </button>
+                    `)}
+                  </div>
+                ` : null}
+                ${post.text ? html`<div className="post-text">${post.text}</div>` : null}
+                <div className="post-dates">${formatShortDate(post.startDate)}${post.endDate && post.endDate !== post.startDate ? ` - ${formatShortDate(post.endDate)}` : ""}</div>
+                ${index < posts.length - 1 ? html`<div className="post-divider"></div>` : null}
+              </article>
+            `)
+            : html`<section className="empty-state"><h3>${isArchived ? "Архив пока пуст" : "Лента пока пустая"}</h3><p>${isArchived ? "Сюда попадут публикации после отправки в архив." : "Первый пост можно добавить через верхнюю кнопку."}</p></section>`}
+        </div>
+      </section>
+      ${modalOpen && html`<${PostModal} onClose=${() => setModalOpen(false)} onSubmit=${async (draft) => { const saved = await onCreatePost(draft); if (saved) setModalOpen(false); }} saving=${saving} />`}
+      ${lightbox && html`
+        <div className="lightbox" onClick=${() => setLightbox(null)}>
+          <div className="lightbox__frame" onClick=${(event) => event.stopPropagation()}>
+            <button type="button" className="modal-close lightbox__close" onClick=${() => setLightbox(null)}>×</button>
+            <img src=${lightbox} alt="Просмотр изображения" />
+          </div>
+        </div>
+      `}
+    </main>
+  `;
+}
+
+function PostModal({ onClose, onSubmit, saving }) {
+  const [draft, setDraft] = useState({
+    author: "Лёша",
+    text: "",
+    pinned: false,
+    startDate: todayISO(),
+    endDate: todayISO(),
+    files: [],
+    previews: [],
   });
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
+  const changeFiles = (files) => {
+    const list = Array.from(files || []);
+    setDraft((current) => ({
+      ...current,
+      files: list,
+      previews: list.map((file) => URL.createObjectURL(file)),
+    }));
+  };
+
+  useEffect(() => () => {
+    draft.previews.forEach((src) => URL.revokeObjectURL(src));
+  }, [draft.previews]);
+
+  return html`
+    <div className="modal-backdrop" onClick=${onClose}>
+      <div className="modal-sheet" onClick=${(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <h3>Новый пост</h3>
+          <button type="button" className="modal-close" onClick=${onClose}>×</button>
+        </div>
+        <label className="upload-drop">
+          <input type="file" accept="image/*" multiple onChange=${(event) => changeFiles(event.target.files)} disabled=${saving} hidden />
+          <span>Добавить фото</span>
+          <small>Файлы с телефона и ПК</small>
+        </label>
+        ${draft.previews.length ? html`
+          <div className=${`post-gallery gallery-${Math.min(draft.previews.length, 4)}`}>
+            ${draft.previews.map((src) => html`<div key=${src} className="gallery-item is-static"><img src=${src} alt="Предпросмотр" /></div>`)}
+          </div>
+        ` : null}
+        <div className="modal-fields">
+          <div className="field">
+            <span>Текст</span>
+            <div className="emoji-wrap">
+              <textarea
+                className="editor-textarea"
+                value=${draft.text}
+                onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+                placeholder="Напишите что-нибудь"
+                disabled=${saving}
+              ></textarea>
+              <div className="emoji-anchor">
+                <button type="button" className="emoji-button" onClick=${() => setEmojiOpen((value) => !value)} disabled=${saving}>😊</button>
+                ${emojiOpen && html`
+                  <div className="emoji-pop">
+                    ${EMOJIS.map((emoji) => html`
+                      <button key=${emoji} type="button" onClick=${() => setDraft((current) => ({ ...current, text: `${current.text}${emoji}` }))}>${emoji}</button>
+                    `)}
+                  </div>
+                `}
+              </div>
+            </div>
+          </div>
+          <div className="field-row">
+            <label className="field">
+              <span>Начало</span>
+              <input type="date" value=${draft.startDate} onInput=${(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} disabled=${saving} />
+            </label>
+            <label className="field">
+              <span>Окончание</span>
+              <input type="date" value=${draft.endDate} onInput=${(event) => setDraft((current) => ({ ...current, endDate: event.target.value }))} disabled=${saving} />
+            </label>
+          </div>
+          <div className="field-row field-row--end">
+            <label className="checkbox-row">
+              <input type="checkbox" checked=${draft.pinned} onChange=${(event) => setDraft((current) => ({ ...current, pinned: event.target.checked }))} disabled=${saving} />
+              <span>Закрепить</span>
+            </label>
+            <button type="button" className="button button--red" onClick=${() => onSubmit(draft)} disabled=${saving || (!draft.text.trim() && !draft.files.length)}>
+              ${saving ? html`<${ButtonSpinner} />` : null}
+              <span>${saving ? "Публикация..." : "Опубликовать"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
-function expandDateRange(fromDate, toDate) {
-  if (!fromDate) {
-    return [];
-  }
-  const from = new Date(fromDate);
-  const to = new Date(toDate || fromDate);
-  const range = [];
-  const cursor = new Date(from);
-  let safety = 0;
-  while (cursor <= to && safety < 45) {
-    range.push(toIsoDate(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-    safety += 1;
-  }
-  return range;
+function CalendarPage({ state, onSave, onLocalChange }) {
+  const monthKey = state.calendarMonth || toMonthKey(todayISO());
+  const [selectedDate, setSelectedDate] = useState(`${monthKey}-01`);
+  const days = useMemo(() => monthMatrix(monthKey), [monthKey]);
+  const events = useMemo(() => collectEventsForDate(state, selectedDate), [state, selectedDate]);
+  const monthLabel = new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(new Date(`${monthKey}-01T12:00:00`));
+  const eventTotals = useMemo(() => {
+    const totals = { planner: 0, dogs: 0, post: 0 };
+    days.forEach((date) => {
+      if (!date) return;
+      collectEventsForDate(state, date).forEach((item) => {
+        totals[item.type] += 1;
+      });
+    });
+    return totals;
+  }, [days, state]);
+
+  useEffect(() => {
+    setSelectedDate(`${monthKey}-01`);
+  }, [monthKey]);
+
+  const shiftMonth = (direction) => {
+    const current = new Date(`${monthKey}-01T12:00:00`);
+    current.setMonth(current.getMonth() + direction);
+    onLocalChange({ ...state, calendarMonth: current.toISOString().slice(0, 7) });
+  };
+
+  return html`
+    <main className="page">
+      <section className="panel calendar-panel">
+        <div className="page-head">
+          <div>
+            <h2>Проверка плана по датам</h2>
+            <p>Календарь показывает траты, заметки по собакам и публикации из ленты.</p>
+          </div>
+          <div className="calendar-controls">
+            <button type="button" className="icon-button" onClick=${() => shiftMonth(-1)}>←</button>
+            <div className="calendar-month-pill">${monthLabel}</div>
+            <button type="button" className="icon-button" onClick=${() => shiftMonth(1)}>→</button>
+            <label className="date-field date-field--month">
+              <span>Месяц</span>
+              <input type="month" value=${monthKey} onInput=${(event) => onLocalChange({ ...state, calendarMonth: event.target.value })} />
+            </label>
+          </div>
+        </div>
+        <div className="calendar-summary">
+          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>Траты: ${eventTotals.planner}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--dogs"></i><span>Собаки: ${eventTotals.dogs}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента: ${eventTotals.post}</span></div>
+        </div>
+        <div className="calendar-grid">
+          <div className="calendar-week">Пн</div>
+          <div className="calendar-week">Вт</div>
+          <div className="calendar-week">Ср</div>
+          <div className="calendar-week">Чт</div>
+          <div className="calendar-week">Пт</div>
+          <div className="calendar-week">Сб</div>
+          <div className="calendar-week">Вс</div>
+          ${days.map((date, index) => {
+            if (!date) return html`<div key=${`empty-${index}`} className="calendar-cell is-empty"></div>`;
+            const cellEvents = collectEventsForDate(state, date);
+            const previewEvents = previewEventsForDate(state, date);
+            return html`
+              <button
+                key=${date}
+                type="button"
+                className=${`calendar-cell${selectedDate === date ? " is-active" : ""}`}
+                onClick=${() => setSelectedDate(date)}
+              >
+                <div className="calendar-cell__top">
+                  <span className="calendar-cell__day">${date.slice(8, 10)}</span>
+                  <small className="calendar-cell__count">${cellEvents.length ? `${cellEvents.length}` : ""}</small>
+                </div>
+                <div className="calendar-lines">
+                  ${previewEvents.map((item) => html`
+                    <div key=${item.id} className=${`calendar-line calendar-line--${item.type}`}>
+                      <span>${item.label}</span>
+                    </div>
+                  `)}
+                </div>
+              </button>
+            `;
+          })}
+        </div>
+      </section>
+      <section className="panel agenda-panel">
+        <div className="page-head">
+          <div>
+            <h2>${formatDate(selectedDate)}</h2>
+            <p>${events.length ? "Все события на выбранную дату." : "На выбранную дату пока ничего нет."}</p>
+          </div>
+        </div>
+        <div className="agenda-list">
+          ${events.length ? events.map((item) => html`
+            <article key=${item.id} className="agenda-item">
+              <div className=${`agenda-badge agenda-badge--${item.type}`}>${item.label}</div>
+              <div className="agenda-text">${item.text}</div>
+            </article>
+          `) : html`<div className="empty-state empty-state--soft"><p>Календарь станет плотнее, когда появятся записи и публикации.</p></div>`}
+        </div>
+      </section>
+    </main>
+  `;
 }
 
-function formatDate(date) {
-  if (!date) {
-    return "--";
-  }
-  const [year, monthIndex, day] = date.split("-").map(Number);
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" }).format(new Date(year, monthIndex - 1, day));
-}
+function AiPage({ state, onSave, onLocalChange, saving }) {
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("budget-ai-key") || "");
+  const [working, setWorking] = useState(false);
+  const [localCsv, setLocalCsv] = useState({
+    fileName: "",
+    csvText: "",
+    rows: [],
+    mappings: [],
+    summary: null,
+    customTargets: [],
+  });
+  const [newTargetName, setNewTargetName] = useState("");
+  const mappings = localCsv.mappings;
+  const boardColumns = useMemo(() => {
+    const targetBySource = new Map(mappings.map((item) => [normalizeKey(item.source), (item.target || item.source).trim()]));
+    const targets = [...new Set([
+      ...mappings.map((item) => item.target.trim()).filter(Boolean),
+      ...(localCsv.customTargets || []).map((item) => item.trim()).filter(Boolean),
+    ])];
+    return targets.map((target) => {
+      const groups = mappings.filter((item) => (item.target || item.source).trim() === target);
+      const operations = localCsv.rows
+        .filter((row) => targetBySource.get(row.sourceKey) === target)
+        .sort((left, right) => right.dateValue - left.dateValue);
+      return {
+        id: target,
+        title: target,
+        groups,
+        operations,
+        operationsCount: operations.length,
+        total: operations.reduce((sum, item) => sum + (item.amount || 0), 0),
+      };
+    }).sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
+  }, [mappings, localCsv.customTargets, localCsv.rows]);
 
-function formatDateTime(isoDate) {
-  if (!isoDate) {
-    return "--";
-  }
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(isoDate));
-}
+  useEffect(() => {
+    localStorage.setItem("budget-ai-key", apiKey);
+  }, [apiKey]);
 
-function formatDateRange(fromDate, toDate) {
-  if (!fromDate) {
-    return "Без даты";
-  }
-  if (!toDate || toDate === fromDate) {
-    return formatDate(fromDate);
-  }
-  return `${formatDate(fromDate)} - ${formatDate(toDate)}`;
-}
+  const updateAiLocal = (patch) => {
+    onLocalChange({ ...state, ai: { ...state.ai, ...patch } });
+  };
 
-function snippet(text) {
-  const clean = String(text || "").replace(/\s+/g, " ").trim();
-  if (!clean) {
-    return "Без текста";
-  }
-  return clean.length > 32 ? `${clean.slice(0, 32)}...` : clean;
-}
+  const updateAi = (patch, message = "Данные обновлены") => {
+    onSave({ ...state, ai: { ...state.ai, ...patch } }, message);
+  };
 
-function todayIso() {
-  return toIsoDate(new Date());
-}
+  const handleCsv = async (file) => {
+    const csvText = await readCsvFile(file);
+    const parsed = buildLocalAiData(csvText, localCsv.mappings);
+    setLocalCsv({
+      fileName: file.name,
+      csvText,
+      rows: parsed.rows,
+      mappings: parsed.mappings,
+      summary: parsed.summary,
+      customTargets: [],
+    });
+  };
 
-function getCurrentMonth() {
-  return todayIso().slice(0, 7);
-}
+  const moveMappingToTarget = (mappingId, target) => {
+    setLocalCsv((current) => ({
+      ...current,
+      customTargets: [...new Set([...(current.customTargets || []), target])],
+      mappings: current.mappings.map((item) => item.id === mappingId ? { ...item, target } : item),
+    }));
+  };
 
-function toIsoDate(date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+  const createTargetColumn = () => {
+    const value = newTargetName.trim();
+    if (!value) return;
+    setLocalCsv((current) => ({
+      ...current,
+      customTargets: [...new Set([...(current.customTargets || []), value])],
+    }));
+    setNewTargetName("");
+  };
 
-function normalizeWeekday(day) {
-  return day === 0 ? 6 : day - 1;
-}
-
-function capitalize(value) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function getImageSrc(image, settings) {
-  if (!image) {
-    return "";
-  }
-  if (typeof image === "string") {
-    return image;
-  }
-  if (image.type === "drive" && image.fileId) {
-    const url = new URL(settings.appsScriptUrl);
-    url.searchParams.set("action", "getImage");
-    url.searchParams.set("fileId", image.fileId);
-    if (settings.syncToken) {
-      url.searchParams.set("token", settings.syncToken);
+  const runAnalysis = async () => {
+    if (!apiKey) {
+      window.alert("Добавьте API key для ИИ-анализа");
+      return;
     }
-    return url.toString();
-  }
-  return image.imageUrl || "";
-}
+    if (!localCsv.csvText) {
+      window.alert("Сначала загрузите CSV");
+      return;
+    }
+    setWorking(true);
+    try {
+      const response = await fetch(AI_ENDPOINTS[state.ai.provider], {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: state.ai.model,
+          temperature: 0.2,
+          messages: [
+            {
+              role: "system",
+              content: "Ты анализируешь финансовые и текстовые CSV-данные, раскладываешь записи по категориям, отмечаешь спорные места и даёшь короткие рекомендации.",
+            },
+            {
+              role: "user",
+              content: [
+                `Промпт пользователя:\n${state.ai.prompt || "Разбери CSV и предложи понятные категории."}`,
+                `Категории и переводы:\n${JSON.stringify(mappings, null, 2)}`,
+                `CSV:\n${localCsv.csvText.slice(0, 14000)}`,
+              ].join("\n\n"),
+            },
+          ],
+        }),
+      });
+      const data = await response.json();
+      const rawText = data.choices?.[0]?.message?.content || data.error?.message || "Пустой ответ";
+      const text = /quota|billing/i.test(rawText)
+        ? "У текущего AI-провайдера закончилась квота или не подключён биллинг. Проверьте лимиты и оплату в кабинете API, либо переключитесь на другого провайдера."
+        : rawText;
+      updateAi({ analysisResult: text, lastRunAt: nowISO() }, "ИИ-анализ завершён");
+    } catch (error) {
+      window.alert(error.message || "Не удалось получить ответ от ИИ");
+    } finally {
+      setWorking(false);
+    }
+  };
 
-function getRouteView() {
-  const raw = window.location.hash.replace(/^#\/?/, "").trim();
-  return normalizeView(raw || "planner");
-}
-
-function normalizeView(value) {
-  return VIEWS.includes(value) ? value : "planner";
+  return html`
+    <main className="page">
+      <section className="panel ai-top">
+        <div className="ai-top__left">
+          <div className="page-head">
+            <div>
+              <h2>ИИ-анализ</h2>
+              <p>CSV хранится только локально в браузере и в JSON не записывается.</p>
+            </div>
+          </div>
+          <div className="field-row">
+            <label className="field">
+              <span>Провайдер</span>
+              <select
+                value=${state.ai.provider}
+                onChange=${(event) => {
+                  const provider = event.target.value;
+                  const model = provider === "openai"
+                    ? "gpt-4o-mini"
+                    : provider === "groq"
+                      ? "llama-3.1-8b-instant"
+                      : "deepseek-chat";
+                  updateAiLocal({ provider, model });
+                }}
+                disabled=${saving || working}
+              >
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai">OpenAI</option>
+                <option value="groq">Groq</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Модель</span>
+              <input type="text" value=${state.ai.model} onInput=${(event) => updateAiLocal({ model: event.target.value })} disabled=${saving || working} />
+            </label>
+          </div>
+          <label className="field">
+            <span>API key</span>
+            <input type="password" value=${apiKey} onInput=${(event) => setApiKey(event.target.value)} placeholder="sk-..." disabled=${working} />
+          </label>
+          <label className="upload-drop upload-drop--compact ai-upload">
+            <input type="file" accept=".csv,text/csv" onChange=${(event) => event.target.files?.[0] && handleCsv(event.target.files[0])} disabled=${saving || working} hidden />
+            <span>Загрузить CSV</span>
+            <small>${localCsv.fileName || "Файл пока не выбран"}</small>
+          </label>
+          <label className="field">
+            <span>Запрос к ИИ</span>
+            <textarea className="editor-textarea editor-textarea--small" value=${state.ai.prompt} onInput=${(event) => updateAiLocal({ prompt: event.target.value })} placeholder="Например: найди спорные переводы и предложи финальные категории" disabled=${saving || working}></textarea>
+          </label>
+          <button type="button" className="button button--red ai-run" onClick=${runAnalysis} disabled=${saving || working || !localCsv.csvText}>
+            ${working ? html`<${ButtonSpinner} />` : null}
+            <span>${working ? "Анализ..." : "Отправить в ИИ"}</span>
+          </button>
+          ${localCsv.fileName ? html`<div className="ai-inline-file">Локально: ${localCsv.fileName}</div>` : null}
+        </div>
+      </section>
+      <section className="panel ai-map-panel">
+        <div className="page-head">
+          <div>
+            <h2>Переводы категорий</h2>
+            <p>Колонка показывает итоговую категорию. Сверху операции, ниже расход.</p>
+          </div>
+          <div className="ai-column-create">
+            <input
+              type="text"
+              value=${newTargetName}
+              onInput=${(event) => setNewTargetName(event.target.value)}
+              placeholder="Создать категорию"
+              disabled=${saving || working || !localCsv.csvText}
+            />
+            <button type="button" className="button button--blue" onClick=${createTargetColumn} disabled=${saving || working || !newTargetName.trim()}>Добавить</button>
+          </div>
+        </div>
+        <div className="ai-board">
+          ${boardColumns.length ? boardColumns.map((column) => html`
+            <section
+              key=${column.id}
+              className="ai-column"
+              onDragOver=${(event) => event.preventDefault()}
+              onDrop=${(event) => {
+                event.preventDefault();
+                const mappingId = event.dataTransfer.getData("text/plain");
+                if (mappingId) moveMappingToTarget(mappingId, column.title);
+              }}
+            >
+              <div className="ai-column__head">
+                <strong>${column.title}</strong>
+                <div className="ai-column__meta">
+                  <span>Операции: ${column.operationsCount}</span>
+                  <span>Расход: ${formatMoney(column.total)}</span>
+                </div>
+              </div>
+              <div className="ai-column__cards">
+                ${column.groups.length ? html`
+                  <div className="ai-group-list">
+                    ${column.groups.map((item) => html`
+                      <div
+                        key=${item.id}
+                        className="ai-group-row"
+                        draggable=${true}
+                        onDragStart=${(event) => event.dataTransfer.setData("text/plain", item.id)}
+                      >
+                        <div className="ai-group-row__meta">
+                          <strong>${item.source}</strong>
+                          <span>${item.count} операций · ${formatMoney(item.total)}</span>
+                        </div>
+                        <input
+                          type="text"
+                          value=${item.comment || ""}
+                          onInput=${(event) => setLocalCsv((current) => ({ ...current, mappings: current.mappings.map((row) => row.id === item.id ? { ...row, comment: event.target.value } : row) }))}
+                          placeholder="Комментарий"
+                          disabled=${saving || working}
+                        />
+                      </div>
+                    `)}
+                  </div>
+                ` : null}
+                ${column.operations.length ? html`
+                  <div className="ai-operation-list">
+                    ${column.operations.map((item) => html`
+                      <div key=${item.id} className="ai-operation-row">
+                        <div className="ai-operation-row__main">
+                          <strong>${normalizeKey(column.title) === normalizeKey("Переводы") ? (item.description || "Перевод") : (item.description || item.category)}</strong>
+                          <span>
+                            ${normalizeKey(column.title) === normalizeKey("Переводы")
+                              ? `${buildCardLabel(item.cardNumber)} · ${item.bankLabel}`
+                              : `${item.date}${item.cardNumber ? ` · ${buildCardLabel(item.cardNumber)}` : ""}`}
+                          </span>
+                        </div>
+                        <div className="ai-operation-row__amount">${formatMoney(item.amount, item.currency)}</div>
+                      </div>
+                    `)}
+                  </div>
+                ` : html`<div className="empty-state empty-state--soft"><p>Сюда можно перетащить категории.</p></div>`}
+              </div>
+            </section>
+          `) : html`<div className="empty-state empty-state--soft"><p>После загрузки CSV здесь появятся колонки категорий.</p></div>`}
+        </div>
+      </section>
+      <section className="panel ai-result">
+        <div className="page-head">
+          <div>
+            <h2>Ответ ИИ</h2>
+            <p>${state.ai.lastRunAt ? `Последний запуск: ${formatTime(state.ai.lastRunAt)}` : "Ответ появится после анализа."}</p>
+          </div>
+        </div>
+        <pre>${state.ai.analysisResult || "Пока пусто."}</pre>
+      </section>
+    </main>
+  `;
 }
 
 createRoot(document.getElementById("app")).render(html`<${App} />`);

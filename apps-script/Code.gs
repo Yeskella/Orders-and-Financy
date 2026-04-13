@@ -1,5 +1,6 @@
 const STATE_FILE_NAME = "budget-flow-planner-state.json";
 const STATE_FOLDER_ID = "1yMthxjbEwRjoLt8WmJmKx1AmpK2P9Y6e";
+const IMAGE_FOLDER_NAME = "Image";
 
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || "health";
@@ -31,6 +32,7 @@ function doGet(e) {
     payload: {
       fileName: STATE_FILE_NAME,
       folderId: STATE_FOLDER_ID,
+      imageFolderName: IMAGE_FOLDER_NAME,
       email: Session.getActiveUser().getEmail(),
     },
   });
@@ -99,10 +101,11 @@ function uploadImage_(body) {
     throw new Error("Missing imageBase64");
   }
 
-  const folder = DriveApp.getFolderById(STATE_FOLDER_ID);
+  const imageFolder = getOrCreateImageFolder_();
   const bytes = Utilities.base64Decode(imageBase64);
   const blob = Utilities.newBlob(bytes, mimeType, fileName);
-  const file = folder.createFile(blob);
+  const file = imageFolder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
   return {
     type: "drive",
@@ -113,14 +116,24 @@ function uploadImage_(body) {
   };
 }
 
+function getOrCreateImageFolder_() {
+  const rootFolder = DriveApp.getFolderById(STATE_FOLDER_ID);
+  const folders = rootFolder.getFoldersByName(IMAGE_FOLDER_NAME);
+  if (folders.hasNext()) {
+    return folders.next();
+  }
+  return rootFolder.createFolder(IMAGE_FOLDER_NAME);
+}
+
 function getImageBlob_(fileId) {
   const file = DriveApp.getFileById(fileId);
   return file.getBlob();
 }
 
 function buildImageUrl_(fileId) {
-  const scriptUrl = ScriptApp.getService().getUrl();
-  return scriptUrl + "?action=getImage&fileId=" + encodeURIComponent(fileId);
+  return "https://drive.google.com/thumbnail?id="
+    + encodeURIComponent(fileId)
+    + "&sz=w1600";
 }
 
 function sanitizeFileName_(fileName) {
@@ -135,26 +148,36 @@ function getDefaultState_() {
     },
     view: "planner",
     calendarMonth: "",
+    plannerSelectedDate: "",
+    dogsSelectedDate: "",
     feedFilters: {
       search: "",
-      month: "",
+      mode: "active",
     },
-    planner: {
-      date: "",
-      text: "",
-      updatedAt: "",
-    },
-    dogs: {
-      date: "",
-      text: "",
-      updatedAt: "",
-    },
+    plannerEntries: [],
+    dogsEntries: [],
     posts: [],
+    ai: {
+      provider: "deepseek",
+      model: "deepseek-chat",
+      prompt: "",
+      csvText: "",
+      analysisResult: "",
+      categoryMappings: [],
+      lastRunAt: "",
+    },
   };
 }
 
 function mergeState_(payload) {
   const defaults = getDefaultState_();
+  const plannerEntries = Array.isArray(payload.plannerEntries)
+    ? payload.plannerEntries
+    : convertLegacyNote_(payload.planner, "planner");
+  const dogsEntries = Array.isArray(payload.dogsEntries)
+    ? payload.dogsEntries
+    : convertLegacyNote_(payload.dogs, "dogs");
+
   return {
     settings: {
       theme: (payload.settings && payload.settings.theme) || defaults.settings.theme,
@@ -162,22 +185,39 @@ function mergeState_(payload) {
     },
     view: payload.view || defaults.view,
     calendarMonth: payload.calendarMonth || defaults.calendarMonth,
+    plannerSelectedDate: payload.plannerSelectedDate || defaults.plannerSelectedDate,
+    dogsSelectedDate: payload.dogsSelectedDate || defaults.dogsSelectedDate,
     feedFilters: {
       search: (payload.feedFilters && payload.feedFilters.search) || "",
-      month: (payload.feedFilters && payload.feedFilters.month) || "",
+      mode: (payload.feedFilters && payload.feedFilters.mode)
+        || (payload.feedFilters && payload.feedFilters.showArchived ? "archived" : "active"),
     },
-    planner: {
-      date: (payload.planner && payload.planner.date) || "",
-      text: (payload.planner && payload.planner.text) || "",
-      updatedAt: (payload.planner && payload.planner.updatedAt) || "",
-    },
-    dogs: {
-      date: (payload.dogs && payload.dogs.date) || "",
-      text: (payload.dogs && payload.dogs.text) || "",
-      updatedAt: (payload.dogs && payload.dogs.updatedAt) || "",
-    },
+    plannerEntries: plannerEntries,
+    dogsEntries: dogsEntries,
     posts: Array.isArray(payload.posts) ? payload.posts : [],
+    ai: {
+      provider: (payload.ai && payload.ai.provider) || defaults.ai.provider,
+      model: (payload.ai && payload.ai.model) || defaults.ai.model,
+      prompt: (payload.ai && payload.ai.prompt) || "",
+      csvText: (payload.ai && payload.ai.csvText) || "",
+      analysisResult: (payload.ai && payload.ai.analysisResult) || "",
+      categoryMappings: Array.isArray(payload.ai && payload.ai.categoryMappings) ? payload.ai.categoryMappings : [],
+      lastRunAt: (payload.ai && payload.ai.lastRunAt) || "",
+    },
   };
+}
+
+function convertLegacyNote_(legacyNote, prefix) {
+  if (!legacyNote || !legacyNote.text) {
+    return [];
+  }
+  return [{
+    id: prefix + "-legacy",
+    date: legacyNote.date || "",
+    text: legacyNote.text || "",
+    repeatMonthly: false,
+    updatedAt: legacyNote.updatedAt || "",
+  }];
 }
 
 function isAuthorized_(token) {
