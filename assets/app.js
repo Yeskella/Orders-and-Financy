@@ -6,163 +6,345 @@ const html = htm.bind(React.createElement);
 
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHR1TZP8doS1WXuZlsQ5-d2DybpfAPBbYtzOblXp_VDMO2aIIOBiEofUacjLeF2TFFNg/exec";
 const THEME_STORAGE_KEY = "budget-planner-theme";
-const NAV_ITEMS = [
+const VIEW_STORAGE_KEY = "budget-planner-view";
+const SESSION_STORAGE_KEY = "budget-planner-session";
+
+const FIXED_NAV_ITEMS = [
   { id: "planner", label: "Планировщик трат" },
   { id: "plans", label: "Лента" },
+  { id: "money", label: "Планы (деньги)" },
   { id: "dogs", label: "Собаки" },
   { id: "calendar", label: "Календарь" },
-  { id: "ai", label: "ИИ-анализ" },
 ];
+
 const THEMES = [
   { id: "light", label: "Светлая" },
   { id: "paper", label: "Мягкая" },
   { id: "dark", label: "Тёмная" },
 ];
-const EMOJIS = ["😊", "🙂", "😌", "🤍", "📌", "📅", "🐶", "💸", "✨", "🔥"];
-const AI_ENDPOINTS = {
-  deepseek: "https://api.deepseek.com/chat/completions",
-  openai: "https://api.openai.com/v1/chat/completions",
-  groq: "https://api.groq.com/openai/v1/chat/completions",
+
+const EMOJIS = ["😊", "🙂", "💡", "📅", "🐶", "💸", "✨", "🔥", "📌", "🤍"];
+const LOCAL_USERS = {
+  Lesha: "vandal2020",
+  Lera: "vandal2021",
 };
+
+const htmlEscape = (value) => String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+const nowISO = () => new Date().toISOString();
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const getDefaultMoneySubitem = (actor = "") => {
+  const timestamp = nowISO();
+  return {
+    id: uid("money-subitem"),
+    name: "",
+    cost: "",
+    completed: false,
+    isNew: true,
+    createdAt: timestamp,
+    createdBy: actor,
+    updatedAt: timestamp,
+    updatedBy: actor,
+  };
+};
+
+const getDefaultMoneyGroup = (actor = "") => {
+  const timestamp = nowISO();
+  return {
+    id: uid("money-group"),
+    title: "",
+    items: [getDefaultMoneySubitem(actor)],
+    createdAt: timestamp,
+    createdBy: actor,
+    updatedAt: timestamp,
+    updatedBy: actor,
+  };
+};
+
 const DEFAULT_STATE = {
-  settings: { theme: "light", lastSyncedAt: "" },
+  settings: {
+    theme: "light",
+    lastSyncedAt: "",
+    lastUpdatedBy: "",
+  },
   view: "planner",
   calendarMonth: "",
   plannerSelectedDate: "",
   dogsSelectedDate: "",
-  feedFilters: { search: "", mode: "active" },
+  moneyActiveTabId: "",
+  feedFilters: {
+    search: "",
+    mode: "active",
+  },
   plannerEntries: [],
   dogsEntries: [],
   posts: [],
-  ai: {
-    provider: "deepseek",
-    model: "deepseek-chat",
-    prompt: "",
-    csvText: "",
-    analysisResult: "",
-    categoryMappings: [],
-    lastRunAt: "",
-  },
+  customTabs: [],
 };
 
-const clone = (value) => JSON.parse(JSON.stringify(value));
-const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+const moneyView = (tabId) => `money:${tabId}`;
+const isMoneyView = (view) => typeof view === "string" && view.startsWith("money:");
+const moneyIdFromView = (view) => (isMoneyView(view) ? view.slice("money:".length) : "");
+const isFixedView = (view) => FIXED_NAV_ITEMS.some((item) => item.id === view);
+
 const getStoredTheme = () => window.localStorage.getItem(THEME_STORAGE_KEY) || "light";
 const setStoredTheme = (theme) => window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const nowISO = () => new Date().toISOString();
-const routeToView = (hash) => NAV_ITEMS.find((item) => `#/${item.id}` === hash)?.id || "planner";
-const toHash = (view) => `#/${view}`;
+
+const getStoredView = () => window.localStorage.getItem(VIEW_STORAGE_KEY) || "planner";
+const setStoredView = (view) => window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+
+const getStoredSession = () => {
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.role ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const setStoredSession = (session) => window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+const clearStoredSession = () => window.localStorage.removeItem(SESSION_STORAGE_KEY);
+
+const toHash = (view) => (
+  isMoneyView(view)
+    ? "#/money"
+    : `#/${view}`
+);
+
+const routeToView = (hash) => {
+  if (!hash) return getStoredView();
+  if (/^#\/money(?:\/.+)?$/.test(hash)) {
+    return "money";
+  }
+  const fixed = FIXED_NAV_ITEMS.find((item) => `#/${item.id}` === hash);
+  return fixed ? fixed.id : getStoredView();
+};
+
+const validateView = (view, customTabs) => {
+  if (isFixedView(view)) return view;
+  if (isMoneyView(view) && customTabs.some((tab) => tab.id === moneyIdFromView(view))) return "money";
+  if (customTabs.length) return "planner";
+  return "planner";
+};
+
 const toMonthKey = (date) => (date || todayISO()).slice(0, 7);
+
 const formatDate = (date) => {
   if (!date) return "";
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`));
 };
+
 const formatShortDate = (date) => {
   if (!date) return "";
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`));
 };
-const formatTime = (date) => {
-  if (!date) return "";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(date));
+
+const formatTime = (value) => {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 };
-const compareDesc = (a, b) => new Date(b).getTime() - new Date(a).getTime();
-const normalizeState = (payload = {}) => ({
-  settings: {
-    theme: payload.settings?.theme || DEFAULT_STATE.settings.theme,
-    lastSyncedAt: payload.settings?.lastSyncedAt || "",
-  },
-  view: payload.view || DEFAULT_STATE.view,
-  calendarMonth: payload.calendarMonth || "",
-  plannerSelectedDate: payload.plannerSelectedDate || "",
-  dogsSelectedDate: payload.dogsSelectedDate || "",
-  feedFilters: {
-    search: payload.feedFilters?.search || "",
-    mode: payload.feedFilters?.mode || (payload.feedFilters?.showArchived ? "archived" : "active"),
-  },
-  plannerEntries: Array.isArray(payload.plannerEntries) ? payload.plannerEntries.map((entry) => ({
-    id: entry.id || uid("planner"),
-    date: entry.date || "",
-    text: entry.text || "",
-    repeatMonthly: Boolean(entry.repeatMonthly),
-    updatedAt: entry.updatedAt || "",
-  })) : [],
-  dogsEntries: Array.isArray(payload.dogsEntries) ? payload.dogsEntries.map((entry) => ({
-    id: entry.id || uid("dogs"),
-    date: entry.date || "",
-    text: entry.text || "",
-    repeatMonthly: Boolean(entry.repeatMonthly),
-    updatedAt: entry.updatedAt || "",
-  })) : [],
-  posts: Array.isArray(payload.posts) ? payload.posts.map((post) => ({
-    id: post.id || uid("post"),
-    author: post.author || "Лёша",
-    text: post.text || "",
-    images: Array.isArray(post.images) ? post.images : (post.image ? [post.image] : []),
-    pinned: Boolean(post.pinned),
-    archived: Boolean(post.archived),
-    createdAt: post.createdAt || nowISO(),
-    startDate: post.startDate || (post.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
-    endDate: post.endDate || post.startDate || (post.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
-  })) : [],
-  ai: {
-    provider: payload.ai?.provider || DEFAULT_STATE.ai.provider,
-    model: payload.ai?.model || DEFAULT_STATE.ai.model,
-    prompt: payload.ai?.prompt || "",
-    csvText: payload.ai?.csvText || "",
-    analysisResult: payload.ai?.analysisResult || "",
-    categoryMappings: Array.isArray(payload.ai?.categoryMappings) ? payload.ai.categoryMappings : [],
-    lastRunAt: payload.ai?.lastRunAt || "",
-  },
-});
-const readTextFile = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(String(reader.result || ""));
-  reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
-  reader.readAsText(file, "utf-8");
-});
-const readArrayBuffer = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(reader.result);
-  reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
-  reader.readAsArrayBuffer(file);
-});
-const scoreDecodedCsv = (text) => {
-  const header = String(text || "").split(/\r?\n/, 1)[0] || "";
-  const keywords = [
-    "\u0414\u0430\u0442\u0430 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
-    "\u041a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f",
-    "\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435",
-    "\u0421\u0443\u043c\u043c\u0430 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
-    "\u0412\u0430\u043b\u044e\u0442\u0430 \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
-  ];
-  const keywordScore = keywords.reduce((score, keyword) => score + (header.includes(keyword) ? 2 : 0), 0);
-  const mojibakePenalty = /Р.|С.|Ѓ|ђ|ё|�/.test(header) ? -4 : 0;
-  const delimiterScore = (header.match(/;/g) || []).length > 5 ? 1 : 0;
-  return keywordScore + delimiterScore + mojibakePenalty;
+
+const compareDesc = (left, right) => new Date(right).getTime() - new Date(left).getTime();
+
+const parseMoneyInput = (value) => {
+  const normalized = String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/\u00A0/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
-const readCsvFile = async (file) => {
-  const buffer = await readArrayBuffer(file);
-  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
-  let cp1251 = utf8;
-  try {
-    cp1251 = new TextDecoder("windows-1251", { fatal: false }).decode(buffer);
-  } catch (error) {
-    cp1251 = utf8;
-  }
-  return scoreDecodedCsv(cp1251) >= scoreDecodedCsv(utf8) ? cp1251 : utf8;
+
+const formatMoney = (value) => new Intl.NumberFormat("ru-RU", {
+  style: "currency",
+  currency: "RUB",
+  maximumFractionDigits: 2,
+}).format(Number.isFinite(value) ? value : 0);
+
+const actorStamp = (actor, at) => {
+  if (!actor && !at) return "";
+  return [actor, at ? formatTime(at) : ""].filter(Boolean).join(" • ");
 };
+
+const initials = (value) => {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+};
+
+const normalizeEntry = (entry, prefix) => ({
+  id: entry?.id || uid(prefix),
+  date: entry?.date || "",
+  text: entry?.text || "",
+  repeatMonthly: Boolean(entry?.repeatMonthly),
+  createdAt: entry?.createdAt || entry?.updatedAt || "",
+  createdBy: entry?.createdBy || "",
+  updatedAt: entry?.updatedAt || "",
+  updatedBy: entry?.updatedBy || "",
+});
+
+const normalizeComment = (comment) => ({
+  id: comment?.id || uid("comment"),
+  author: comment?.author || comment?.createdBy || "Lesha",
+  text: comment?.text || "",
+  createdAt: comment?.createdAt || nowISO(),
+  createdBy: comment?.createdBy || comment?.author || "",
+  updatedAt: comment?.updatedAt || comment?.createdAt || "",
+  updatedBy: comment?.updatedBy || comment?.createdBy || comment?.author || "",
+});
+
+const normalizePost = (post) => ({
+  id: post?.id || uid("post"),
+  author: post?.author || post?.createdBy || "Lesha",
+  text: post?.text || "",
+  images: Array.isArray(post?.images) ? post.images : (post?.image ? [post.image] : []),
+  pinned: Boolean(post?.pinned),
+  archived: Boolean(post?.archived),
+  createdAt: post?.createdAt || nowISO(),
+  createdBy: post?.createdBy || post?.author || "",
+  updatedAt: post?.updatedAt || post?.createdAt || "",
+  updatedBy: post?.updatedBy || post?.createdBy || post?.author || "",
+  startDate: post?.startDate || (post?.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
+  endDate: post?.endDate || post?.startDate || (post?.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
+  comments: Array.isArray(post?.comments) ? post.comments.map((comment) => normalizeComment(comment)) : [],
+});
+
+const normalizeMoneySubitem = (row) => ({
+  id: row?.id || uid("money-subitem"),
+  name: row?.name || row?.title || "",
+  cost: row?.cost ?? "",
+  completed: Boolean(row?.completed),
+  isNew: Boolean(row?.isNew),
+  createdAt: row?.createdAt || row?.updatedAt || "",
+  createdBy: row?.createdBy || "",
+  updatedAt: row?.updatedAt || "",
+  updatedBy: row?.updatedBy || "",
+});
+
+const sortMoneySubitems = (items) => [...items].sort((left, right) => {
+  const completedDiff = Number(Boolean(left.completed)) - Number(Boolean(right.completed));
+  if (completedDiff !== 0) return completedDiff;
+  const amountDiff = parseMoneyInput(right.cost) - parseMoneyInput(left.cost);
+  if (amountDiff !== 0) return amountDiff;
+  return (left.name || "").localeCompare(right.name || "", "ru", { sensitivity: "base" });
+});
+const serializeMoneyDraft = (title, groups) => JSON.stringify({
+  title: String(title || "").trim(),
+  groups: (groups || []).map((group) => ({
+    title: String(group.title || "").trim(),
+    items: (group.items || []).map((item) => ({
+      name: String(item.name || "").trim(),
+      cost: String(item.cost || "").trim(),
+      completed: Boolean(item.completed),
+    })),
+  })),
+});
+const serializeMoneySubitem = (item) => JSON.stringify({
+  name: String(item?.name || "").trim(),
+  cost: String(item?.cost || "").trim(),
+  completed: Boolean(item?.completed),
+});
+
+const normalizeMoneyGroup = (group) => ({
+  id: group?.id || uid("money-group"),
+  title: group?.title || group?.name || "",
+  items: Array.isArray(group?.items)
+    ? group.items.map((item) => normalizeMoneySubitem(item))
+    : [],
+  createdAt: group?.createdAt || group?.updatedAt || "",
+  createdBy: group?.createdBy || "",
+  updatedAt: group?.updatedAt || "",
+  updatedBy: group?.updatedBy || "",
+});
+
+const normalizeMoneyTab = (tab) => ({
+  id: tab?.id || uid("money-tab"),
+  title: tab?.title || "Планы (деньги)",
+  groups: Array.isArray(tab?.groups)
+    ? tab.groups.map((group) => normalizeMoneyGroup(group))
+    : (Array.isArray(tab?.rows) && tab.rows.length
+      ? [{
+        ...normalizeMoneyGroup({
+          id: uid("money-group"),
+          title: "Общее",
+          items: tab.rows,
+        }),
+      }]
+      : []),
+  createdAt: tab?.createdAt || tab?.updatedAt || "",
+  createdBy: tab?.createdBy || "",
+  updatedAt: tab?.updatedAt || "",
+  updatedBy: tab?.updatedBy || "",
+});
+
+const convertLegacyNote = (legacyNote, prefix) => {
+  if (!legacyNote?.text) return [];
+  return [normalizeEntry({
+    id: `${prefix}-legacy`,
+    date: legacyNote.date || "",
+    text: legacyNote.text || "",
+    repeatMonthly: false,
+    updatedAt: legacyNote.updatedAt || "",
+  }, prefix)];
+};
+
+const normalizeState = (payload = {}) => {
+  const customTabs = Array.isArray(payload.customTabs)
+    ? payload.customTabs.map((tab) => normalizeMoneyTab(tab))
+    : [];
+
+  const nextView = validateView(payload.view || getStoredView(), customTabs);
+
+  return {
+    settings: {
+      theme: payload.settings?.theme || DEFAULT_STATE.settings.theme,
+      lastSyncedAt: payload.settings?.lastSyncedAt || "",
+      lastUpdatedBy: payload.settings?.lastUpdatedBy || "",
+    },
+    view: nextView,
+    calendarMonth: payload.calendarMonth || "",
+    plannerSelectedDate: payload.plannerSelectedDate || "",
+    dogsSelectedDate: payload.dogsSelectedDate || "",
+    moneyActiveTabId: payload.moneyActiveTabId || moneyIdFromView(payload.view || "") || customTabs[0]?.id || "",
+    feedFilters: {
+      search: payload.feedFilters?.search || "",
+      mode: payload.feedFilters?.mode || (payload.feedFilters?.showArchived ? "archived" : "active"),
+    },
+    plannerEntries: Array.isArray(payload.plannerEntries)
+      ? payload.plannerEntries.map((entry) => normalizeEntry(entry, "planner"))
+      : convertLegacyNote(payload.planner, "planner"),
+    dogsEntries: Array.isArray(payload.dogsEntries)
+      ? payload.dogsEntries.map((entry) => normalizeEntry(entry, "dogs"))
+      : convertLegacyNote(payload.dogs, "dogs"),
+    posts: Array.isArray(payload.posts)
+      ? payload.posts.map((post) => normalizePost(post))
+      : [],
+    customTabs,
+  };
+};
+
 const readBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
   reader.onerror = () => reject(new Error("Не удалось прочитать изображение"));
   reader.readAsDataURL(file);
 });
-const resizeImageFile = (file, maxSide = 1400, quality = 0.84) => new Promise((resolve, reject) => {
+
+const resizeImageFile = (file, maxSide = 1280, quality = 0.84) => new Promise((resolve, reject) => {
   if (!file.type.startsWith("image/")) {
     resolve(file);
     return;
   }
+
   const reader = new FileReader();
   reader.onerror = () => reject(new Error("Не удалось подготовить изображение"));
   reader.onload = () => {
@@ -190,273 +372,75 @@ const resizeImageFile = (file, maxSide = 1400, quality = 0.84) => new Promise((r
   };
   reader.readAsDataURL(file);
 });
-const detectDelimiter = (text) => {
-  const head = String(text || "").split(/\r?\n/, 1)[0] || "";
-  const semicolonCount = (head.match(/;/g) || []).length;
-  const commaCount = (head.match(/,/g) || []).length;
-  return semicolonCount > commaCount ? ";" : ",";
-};
-const parseCsv = (text) => {
-  const delimiter = detectDelimiter(text);
-  const rows = [];
-  let row = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-    if (char === "\"") {
-      if (quoted && next === "\"") {
-        value += "\"";
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === delimiter && !quoted) {
-      row.push(value);
-      value = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && next === "\n") index += 1;
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-    } else {
-      value += char;
-    }
-  }
-  if (value || row.length) {
-    row.push(value);
-    rows.push(row);
-  }
-  return rows.filter((item) => item.some((cell) => String(cell || "").trim()));
-};
-const parseAmount = (value) => {
-  const normalized = String(value || "")
-    .replace(/\s+/g, "")
-    .replace(/\u00A0/g, "")
-    .replace(",", ".");
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-const normalizeCategoryName = (value) => String(value || "")
-  .replace(/\s+/g, " ")
-  .replace(/\u00A0/g, " ")
-  .trim();
-const normalizeKey = (value) => normalizeCategoryName(value).toLowerCase();
-const parseOperationDate = (value) => {
-  const text = String(value || "").trim();
-  const match = text.match(/^(\d{2})\.(\d{2})\.(\d{4})(?: (\d{2}):(\d{2}):(\d{2}))?/);
-  if (!match) return 0;
-  const [, day, month, year, hours = "00", minutes = "00", seconds = "00"] = match;
-  return new Date(`${year}-${month}-${day}T${hours}:${minutes}:${seconds}`).getTime();
-};
-const buildCardLabel = (value) => {
-  const text = String(value || "").trim();
-  if (!text) return "Без номера карты";
-  return text.startsWith("*") ? `Карта ${text}` : text;
-};
-const detectBankByTransfer = (cardNumber, description) => {
-  const text = `${cardNumber || ""} ${description || ""}`.toLowerCase();
-  if (text.includes("сбер")) return "СберБанк";
-  if (text.includes("тинькофф") || text.includes("t-bank") || text.includes("т-банк")) return "Т-Банк";
-  if (text.includes("альфа")) return "Альфа-Банк";
-  if (text.includes("втб")) return "ВТБ";
-  if (text.includes("газпром")) return "Газпромбанк";
-  if (text.includes("райфф")) return "Райффайзен";
-  if (text.includes("озон")) return "Ozon Банк";
-  if (text.includes("совком")) return "Совкомбанк";
-  if (text.includes("мтс")) return "МТС Банк";
-  return "Банк не определён";
-};
-const buildLocalAiData = (csvText, currentMappings = []) => {
-  const rows = parseCsv(csvText);
-  if (rows.length < 2) {
-    return {
-      rows: [],
-      mappings: [],
-      summary: null,
-    };
-  }
-  const header = rows[0].map((cell) => String(cell || "").trim().toLowerCase());
-  const dataRows = rows.slice(1);
-  const bankLayoutFallback = rows[0].length >= 12 ? { date: 0, amount: 4, currency: 5, category: 9, description: 11 } : {};
-  const dateIndex = header.findIndex((cell) => cell.includes("дата опера") || cell.includes("transaction date"));
-  const categoryIndex = header.findIndex((cell) => cell.includes("катег") || cell.includes("category"));
-  const descriptionIndex = header.findIndex((cell) => cell.includes("опис") || cell.includes("description"));
-  const amountIndex = header.findIndex((cell) => (cell.includes("сумма") && cell.includes("опера")) || cell.includes("amount"));
-  const currencyIndex = header.findIndex((cell) => (cell.includes("валют") && cell.includes("опера")) || cell.includes("currency"));
-  const resolvedDateIndex = dateIndex >= 0 ? dateIndex : (bankLayoutFallback.date ?? 0);
-  const resolvedCategoryIndex = categoryIndex >= 0 ? categoryIndex : (bankLayoutFallback.category ?? 0);
-  const resolvedDescriptionIndex = descriptionIndex >= 0 ? descriptionIndex : (bankLayoutFallback.description ?? 1);
-  const resolvedAmountIndex = amountIndex >= 0 ? amountIndex : (bankLayoutFallback.amount ?? 0);
-  const resolvedCurrencyIndex = currencyIndex >= 0 ? currencyIndex : (bankLayoutFallback.currency ?? 0);
-  const items = dataRows.map((row, index) => ({
-    id: uid(`txn-${index}`),
-    date: String(row[resolvedDateIndex] || "").trim(),
-    category: normalizeCategoryName(row[resolvedCategoryIndex] || "Без категории"),
-    description: String(row[resolvedDescriptionIndex] || "").trim(),
-    amount: parseAmount(row[resolvedAmountIndex]),
-    currency: String(row[resolvedCurrencyIndex] || "RUB").trim(),
-    cardNumber: String(row[2] || "").trim(),
-  })).filter((item) => item.category || item.description || item.amount)
-    .map((item) => ({
-      ...item,
-      sourceKey: normalizeKey(item.category),
-      dateValue: parseOperationDate(item.date),
-      bankLabel: normalizeKey(item.category) === normalizeKey("Переводы")
-        ? detectBankByTransfer(item.cardNumber, item.description)
-        : "",
-    }));
 
-  const grouped = new Map();
-  items.forEach((item) => {
-    const groupKey = item.sourceKey;
-    const current = grouped.get(groupKey) || {
-      id: uid("map"),
-      source: item.category,
-      target: item.category,
-      comment: "",
-      count: 0,
-      total: 0,
-    };
-    current.count += 1;
-    current.total += item.amount;
-    grouped.set(groupKey, current);
-  });
-
-  const mappings = [...grouped.values()]
-    .map((item) => {
-      const existing = currentMappings.find((row) => row.source === item.source);
-      return existing
-        ? { ...item, target: existing.target, comment: existing.comment || "" }
-        : item;
-    })
-    .sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
-
-  const summary = {
-    operations: items.length,
-    categories: mappings.length,
-    totalSpent: items.filter((item) => item.amount < 0).reduce((sum, item) => sum + item.amount, 0),
-    topCategories: mappings.slice(0, 4),
-    recentRows: items.slice(0, 6),
-  };
-
-  return {
-    rows: items,
-    mappings,
-    summary,
-  };
-};
-const formatMoney = (value, currency = "RUB") => {
-  try {
-    return new Intl.NumberFormat("ru-RU", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(value);
-  } catch (error) {
-    return `${value} ${currency}`;
-  }
-};
-const detectCategories = (csvText, currentMappings = []) => {
-  return buildLocalAiData(csvText, currentMappings).mappings.map((source) => {
-    const current = currentMappings.find((item) => item.source === source.source);
-    return current || { id: uid("map"), source: source.source, target: source.source, comment: "" };
-  });
-};
-const dateMatchesEntry = (entry, date) => {
-  if (!entry?.date || !date) return false;
-  if (entry.repeatMonthly) {
-    return entry.date.slice(8, 10) === date.slice(8, 10);
-  }
-  return entry.date === date;
-};
-const findEntryForDate = (entries, date) => {
-  const exact = entries.find((entry) => entry.date === date);
-  if (exact) return exact;
-  return entries.find((entry) => entry.repeatMonthly && entry.date.slice(8, 10) === date.slice(8, 10)) || null;
-};
-const upsertEntry = (entries, nextEntry) => {
-  const next = entries.filter((entry) => entry.id !== nextEntry.id);
-  next.push(nextEntry);
-  return next.sort((left, right) => compareDesc(left.updatedAt || left.date, right.updatedAt || right.date));
-};
-const sortedPosts = (posts, filters) => {
-  const search = filters.search.trim().toLowerCase();
-  const filtered = posts.filter((post) => {
-    if (filters.mode === "archived" && !post.archived) return false;
-    if (filters.mode === "active" && post.archived) return false;
-    if (!search) return true;
-    return `${post.author} ${post.text}`.toLowerCase().includes(search);
-  });
-  const ordered = filtered.sort((left, right) => compareDesc(left.createdAt, right.createdAt));
-  const pinned = ordered.filter((post) => post.pinned && !post.archived);
-  const regular = ordered.filter((post) => !post.pinned);
-  return filters.mode === "archived" ? regular : [...pinned, ...regular];
-};
-const inRange = (date, start, end) => date >= start && date <= end;
-const collectEventsForDate = (state, date) => {
-  const items = [];
-  state.plannerEntries.forEach((entry) => {
-    if (dateMatchesEntry(entry, date)) items.push({ id: `${entry.id}-${date}`, type: "planner", label: "Планировщик трат", text: entry.text });
-  });
-  state.dogsEntries.forEach((entry) => {
-    if (dateMatchesEntry(entry, date)) items.push({ id: `${entry.id}-${date}`, type: "dogs", label: "Собаки", text: entry.text });
-  });
-  state.posts.filter((post) => !post.archived).forEach((post) => {
-    const start = post.startDate || post.createdAt.slice(0, 10);
-    const end = post.endDate || start;
-    if (inRange(date, start, end)) items.push({ id: `${post.id}-${date}`, type: "post", label: "Лента", text: post.text || "Публикация" });
-  });
-  return items;
-};
-const previewEventsForDate = (state, date) => {
-  const items = collectEventsForDate(state, date);
-  return items.slice(0, 2).map((item) => ({
-    id: item.id,
-    type: item.type,
-    label: item.text.split("\n")[0].trim() || item.label,
-  }));
-};
-const monthMatrix = (monthKey) => {
-  const [year, month] = monthKey.split("-").map(Number);
-  const first = new Date(year, month - 1, 1);
-  const last = new Date(year, month, 0);
-  const days = [];
-  const shift = (first.getDay() + 6) % 7;
-  for (let index = 0; index < shift; index += 1) days.push(null);
-  for (let day = 1; day <= last.getDate(); day += 1) {
-    const iso = new Date(year, month - 1, day, 12, 0, 0).toISOString().slice(0, 10);
-    days.push(iso);
-  }
-  while (days.length % 7) days.push(null);
-  return days;
-};
 const imageSrc = (image) => {
-  if (image?.fileId) {
-    return `https://drive.google.com/thumbnail?id=${encodeURIComponent(image.fileId)}&sz=w1600`;
-  }
-  return image?.imageUrl || "";
+  if (!image) return "";
+  if (image.imageUrl) return image.imageUrl;
+  if (image.fileId) return `${DEFAULT_SCRIPT_URL}?action=getImage&fileId=${encodeURIComponent(image.fileId)}`;
+  return "";
 };
+
 const fetchState = async () => {
   const response = await fetch(`${DEFAULT_SCRIPT_URL}?action=getState`, { method: "GET" });
   const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось загрузить данные");
+  if (!response.ok || !data.ok) {
+    throw new Error(data.message || "Не удалось загрузить данные");
+  }
   return normalizeState(data.payload);
 };
+
 const saveState = async (payload) => {
   const response = await fetch(DEFAULT_SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action: "saveState", payload }),
+    body: JSON.stringify({
+      action: "saveState",
+      payload,
+    }),
   });
   const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось сохранить данные");
+  if (!response.ok || !data.ok) {
+    throw new Error(data.message || "Не удалось сохранить данные");
+  }
   return data;
 };
+
+const loginFallback = (role, password) => {
+  if (LOCAL_USERS[role] === password) {
+    return { role };
+  }
+  throw new Error("Неверная роль или пароль");
+};
+
+const loginRemote = async (role, password) => {
+  try {
+    const response = await fetch(DEFAULT_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "login",
+        role,
+        password,
+      }),
+    });
+    const data = await response.json();
+    if (response.ok && data.ok) {
+      return data.payload || { role };
+    }
+    if (data.message === "Unknown action") {
+      return loginFallback(role, password);
+    }
+    throw new Error(data.message || "Не удалось авторизоваться");
+  } catch (error) {
+    if (LOCAL_USERS[role] === password) {
+      return { role, fallback: true };
+    }
+    throw error;
+  }
+};
+
 const uploadImages = async (files) => {
-  const result = [];
+  const uploaded = [];
   for (const file of files) {
     const prepared = await resizeImageFile(file);
     const response = await fetch(DEFAULT_SCRIPT_URL, {
@@ -470,31 +454,113 @@ const uploadImages = async (files) => {
       }),
     });
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось загрузить изображение");
-    result.push(data.payload);
+    if (!response.ok || !data.ok) {
+      throw new Error(data.message || "Не удалось загрузить изображение");
+    }
+    uploaded.push(data.payload);
   }
-  return result;
+  return uploaded;
+};
+
+const dateMatchesEntry = (entry, date) => {
+  if (!entry?.date || !date) return false;
+  if (entry.repeatMonthly) {
+    return entry.date.slice(8, 10) === date.slice(8, 10);
+  }
+  return entry.date === date;
+};
+
+const findEntryForDate = (entries, date) => {
+  const exact = entries.find((entry) => entry.date === date);
+  if (exact) return exact;
+  return entries.find((entry) => entry.repeatMonthly && entry.date.slice(8, 10) === date.slice(8, 10)) || null;
+};
+
+const upsertEntry = (entries, nextEntry) => {
+  const next = entries.filter((entry) => entry.id !== nextEntry.id);
+  next.push(nextEntry);
+  return next.sort((left, right) => compareDesc(left.updatedAt || left.date, right.updatedAt || right.date));
+};
+
+const sortedPosts = (posts, filters) => {
+  const search = filters.search.trim().toLowerCase();
+  const filtered = posts.filter((post) => {
+    if (filters.mode === "archived" && !post.archived) return false;
+    if (filters.mode === "active" && post.archived) return false;
+    if (!search) return true;
+    const commentText = (post.comments || []).map((comment) => `${comment.author} ${comment.text}`).join(" ");
+    return `${post.author} ${post.text} ${commentText}`.toLowerCase().includes(search);
+  });
+  const ordered = filtered.sort((left, right) => compareDesc(left.createdAt, right.createdAt));
+  const pinned = ordered.filter((post) => post.pinned && !post.archived);
+  const regular = ordered.filter((post) => !post.pinned);
+  return filters.mode === "archived" ? regular : [...pinned, ...regular];
+};
+
+const inRange = (date, start, end) => date >= start && date <= end;
+
+const collectEventsForDate = (state, date) => {
+  const items = [];
+  state.plannerEntries.forEach((entry) => {
+    if (dateMatchesEntry(entry, date)) {
+      items.push({ id: `${entry.id}-${date}`, type: "planner", label: "Планировщик трат", text: entry.text });
+    }
+  });
+  state.dogsEntries.forEach((entry) => {
+    if (dateMatchesEntry(entry, date)) {
+      items.push({ id: `${entry.id}-${date}`, type: "dogs", label: "Собаки", text: entry.text });
+    }
+  });
+  state.posts.filter((post) => !post.archived).forEach((post) => {
+    const start = post.startDate || post.createdAt.slice(0, 10);
+    const end = post.endDate || start;
+    if (inRange(date, start, end)) {
+      items.push({ id: `${post.id}-${date}`, type: "post", label: "Лента", text: post.text || "Публикация" });
+    }
+  });
+  return items;
+};
+
+const previewEventsForDate = (state, date) => collectEventsForDate(state, date)
+  .slice(0, 2)
+  .map((item) => ({
+    id: item.id,
+    type: item.type,
+    label: item.text.split("\n")[0].trim() || item.label,
+  }));
+
+const monthMatrix = (monthKey) => {
+  const [year, month] = monthKey.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  const days = [];
+  const shift = (first.getDay() + 6) % 7;
+  for (let index = 0; index < shift; index += 1) days.push(null);
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    days.push(new Date(year, month - 1, day, 12, 0, 0).toISOString().slice(0, 10));
+  }
+  while (days.length % 7) days.push(null);
+  return days;
 };
 
 function App() {
-  const [state, setState] = useState(() => ({
+  const [state, setState] = useState(() => normalizeState({
     ...clone(DEFAULT_STATE),
     settings: {
       ...clone(DEFAULT_STATE).settings,
       theme: getStoredTheme(),
     },
+    view: routeToView(window.location.hash),
   }));
+  const [session, setSession] = useState(() => getStoredSession());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [authSaving, setAuthSaving] = useState(false);
 
   useEffect(() => {
     document.title = "Планировщик";
-    window.history.replaceState(null, "", toHash(routeToView(window.location.hash)));
-    const onHashChange = () => setState((current) => ({ ...current, view: routeToView(window.location.hash) }));
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
   useEffect(() => {
@@ -502,11 +568,30 @@ function App() {
   }, [state.settings.theme]);
 
   useEffect(() => {
+    const currentView = routeToView(window.location.hash);
+    setStoredView(currentView);
+    window.history.replaceState(null, "", toHash(currentView));
+
+    const onHashChange = () => {
+      setState((current) => {
+        const nextView = validateView(routeToView(window.location.hash), current.customTabs);
+        setStoredView(nextView);
+        return { ...current, view: nextView };
+      });
+    };
+
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
     let alive = true;
     fetchState()
       .then((payload) => {
         if (!alive) return;
-        const view = routeToView(window.location.hash);
+        const view = validateView(routeToView(window.location.hash), payload.customTabs);
+        setStoredView(view);
+        window.history.replaceState(null, "", toHash(view));
         setState({
           ...payload,
           view,
@@ -519,10 +604,18 @@ function App() {
       .catch((error) => {
         if (!alive) return;
         setToast({ tone: "danger", text: error.message });
+        setState((current) => ({
+          ...current,
+          settings: {
+            ...current.settings,
+            theme: getStoredTheme(),
+          },
+        }));
       })
       .finally(() => {
         if (alive) setLoading(false);
       });
+
     return () => {
       alive = false;
     };
@@ -530,53 +623,30 @@ function App() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timeout = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(timeout);
+    const timer = window.setTimeout(() => setToast(null), 2800);
+    return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const persist = async (nextState, message = "Сохранено") => {
-    if (saving) return false;
-    setSaving(true);
-    try {
-      const normalized = normalizeState({
-        ...nextState,
-        settings: {
-          ...nextState.settings,
-          theme: getStoredTheme(),
-          lastSyncedAt: nowISO(),
-        },
-      });
-      const payloadToSave = {
-        ...normalized,
-        settings: {
-          ...normalized.settings,
-          theme: "light",
-        },
-        ai: {
-          ...normalized.ai,
-          csvText: "",
-          categoryMappings: [],
-        },
-      };
-      await saveState(payloadToSave);
-      setState(normalized);
-      setToast({ tone: "success", text: message });
-      return true;
-    } catch (error) {
-      setToast({ tone: "danger", text: error.message });
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
+  useEffect(() => {
+    if (!themeMenuOpen) return undefined;
+    const handleOutside = (event) => {
+      if (!event.target.closest(".theme-menu")) {
+        setThemeMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [themeMenuOpen]);
 
   const applyLocal = (updater) => {
     setState((current) => normalizeState(typeof updater === "function" ? updater(current) : updater));
   };
 
   const setView = (view) => {
-    window.history.replaceState(null, "", toHash(view));
-    setState((current) => ({ ...current, view }));
+    const nextView = validateView(view, state.customTabs);
+    setStoredView(nextView);
+    window.history.replaceState(null, "", toHash(nextView));
+    setState((current) => ({ ...current, view: nextView }));
   };
 
   const changeTheme = (theme) => {
@@ -591,40 +661,108 @@ function App() {
     setThemeMenuOpen(false);
   };
 
+  const persist = async (nextState, message = "Сохранено") => {
+    if (saving) return false;
+    setSaving(true);
+    try {
+      const normalized = normalizeState({
+        ...nextState,
+        settings: {
+          ...nextState.settings,
+          theme: getStoredTheme(),
+          lastSyncedAt: nowISO(),
+          lastUpdatedBy: session?.role || nextState.settings?.lastUpdatedBy || "",
+        },
+      });
+
+      const payloadToSave = {
+        ...normalized,
+        settings: {
+          ...normalized.settings,
+          theme: "light",
+        },
+      };
+
+      await saveState(payloadToSave);
+      setState(normalized);
+      setToast({ tone: "success", text: message });
+      return true;
+    } catch (error) {
+      setToast({ tone: "danger", text: error.message });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogin = async ({ role, password }) => {
+    setAuthSaving(true);
+    try {
+      const payload = await loginRemote(role, password);
+      const nextSession = {
+        role: payload.role || role,
+        loggedInAt: nowISO(),
+      };
+      setStoredSession(nextSession);
+      setSession(nextSession);
+      setToast({ tone: "success", text: `Вход выполнен: ${nextSession.role}` });
+      return true;
+    } catch (error) {
+      setToast({ tone: "danger", text: error.message });
+      return false;
+    } finally {
+      setAuthSaving(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearStoredSession();
+    setSession(null);
+    setThemeMenuOpen(false);
+  };
+
   const handleCreatePost = async (draft) => {
     if (saving) return false;
     setSaving(true);
     try {
       const images = draft.files.length ? await uploadImages(draft.files) : [];
-      const nextPost = {
+      const timestamp = nowISO();
+      const nextPost = normalizePost({
         id: uid("post"),
-        author: draft.author || "Лёша",
+        author: session.role,
         text: draft.text.trim(),
         images,
         pinned: draft.pinned,
         archived: false,
-        createdAt: nowISO(),
+        createdAt: timestamp,
+        createdBy: session.role,
+        updatedAt: timestamp,
+        updatedBy: session.role,
         startDate: draft.startDate,
         endDate: draft.endDate,
-      };
+      });
       const nextState = normalizeState({
         ...state,
         posts: [nextPost, ...state.posts],
       });
-      nextState.settings.lastSyncedAt = nowISO();
       await saveState({
         ...nextState,
         settings: {
           ...nextState.settings,
           theme: "light",
-        },
-        ai: {
-          ...nextState.ai,
-          csvText: "",
-          categoryMappings: [],
+          lastSyncedAt: timestamp,
+          lastUpdatedBy: session.role,
         },
       });
-      setState(nextState);
+      setState({
+        ...nextState,
+        settings: {
+          ...nextState.settings,
+          theme: getStoredTheme(),
+          lastSyncedAt: timestamp,
+          lastUpdatedBy: session.role,
+        },
+      });
       setToast({ tone: "success", text: "Пост опубликован" });
       return true;
     } catch (error) {
@@ -635,23 +773,231 @@ function App() {
     }
   };
 
-  const page = loading
-    ? html`<${LoadingPage} view=${state.view} />`
-    : state.view === "planner"
-      ? html`<${NotePage} kind="planner" title="Планировщик трат" state=${state} onSave=${persist} onLocalChange=${applyLocal} saving=${saving} />`
-      : state.view === "plans"
-        ? html`<${FeedPage} state=${state} onSave=${persist} onLocalChange=${applyLocal} onCreatePost=${handleCreatePost} saving=${saving} />`
-        : state.view === "dogs"
-          ? html`<${NotePage} kind="dogs" title="Собаки" state=${state} onSave=${persist} onLocalChange=${applyLocal} saving=${saving} />`
-          : state.view === "calendar"
-            ? html`<${CalendarPage} state=${state} onSave=${persist} onLocalChange=${applyLocal} />`
-            : html`<${AiPage} state=${state} onSave=${persist} onLocalChange=${applyLocal} saving=${saving} />`;
+  const createMoneyTab = async (title) => {
+    if (!session) return;
+    const timestamp = nowISO();
+    const nextTab = normalizeMoneyTab({
+      id: uid("money"),
+      title: title?.trim() || (state.customTabs.length ? `Новый план ${state.customTabs.length + 1}` : "Новый план"),
+      groups: [getDefaultMoneyGroup(session.role)],
+      createdAt: timestamp,
+      createdBy: session.role,
+      updatedAt: timestamp,
+      updatedBy: session.role,
+    });
+    const saved = await persist({
+      ...state,
+      view: "money",
+      moneyActiveTabId: nextTab.id,
+      customTabs: [...state.customTabs, nextTab],
+    }, "Вкладка создана");
+    if (saved) {
+      setView("money");
+    }
+  };
+
+  const saveMoneyTab = async (tabId, nextTab) => {
+    const saved = await persist({
+      ...state,
+      moneyActiveTabId: tabId,
+      customTabs: state.customTabs.map((tab) => (tab.id === tabId ? nextTab : tab)),
+    }, "План сохранён");
+    return saved;
+  };
+
+  const deleteMoneyTab = async (tabId) => {
+    const rest = state.customTabs.filter((tab) => tab.id !== tabId);
+    const saved = await persist({
+      ...state,
+      view: "money",
+      moneyActiveTabId: rest[0]?.id || "",
+      customTabs: rest,
+    }, "Вкладка удалена");
+    if (saved) {
+      setView("money");
+    }
+  };
+
+  const activeMoneyTab = state.customTabs.find((tab) => tab.id === state.moneyActiveTabId) || state.customTabs[0] || null;
+
+  let page = html`<${LoadingPage} />`;
+  if (!loading && !session) {
+    page = html`<${LoginPage} saving=${authSaving} onSubmit=${handleLogin} />`;
+  } else if (!loading && state.view === "planner") {
+    page = html`
+      <${NotePage}
+        kind="planner"
+        title="Планировщик трат"
+        state=${state}
+        onSave=${persist}
+        onLocalChange=${applyLocal}
+        saving=${saving}
+        actor=${session?.role || ""}
+      />
+    `;
+  } else if (!loading && state.view === "plans") {
+    page = html`
+      <${FeedPage}
+        state=${state}
+        onSave=${persist}
+        onLocalChange=${applyLocal}
+        onCreatePost=${handleCreatePost}
+        saving=${saving}
+        actor=${session?.role || ""}
+      />
+    `;
+  } else if (!loading && state.view === "dogs") {
+    page = html`
+      <${NotePage}
+        kind="dogs"
+        title="Собаки"
+        state=${state}
+        onSave=${persist}
+        onLocalChange=${applyLocal}
+        saving=${saving}
+        actor=${session?.role || ""}
+      />
+    `;
+  } else if (!loading && state.view === "calendar") {
+    page = html`
+      <${CalendarPage}
+        state=${state}
+        onLocalChange=${applyLocal}
+      />
+    `;
+  } else if (!loading && state.view === "money") {
+    page = html`
+      <${MoneyTabPage}
+        tabs=${state.customTabs}
+        tab=${activeMoneyTab}
+        activeTabId=${state.moneyActiveTabId}
+        saving=${saving}
+        actor=${session?.role || ""}
+        onSave=${saveMoneyTab}
+        onDelete=${deleteMoneyTab}
+        onAddTab=${createMoneyTab}
+        onSelectTab=${(tabId) => applyLocal({ ...state, moneyActiveTabId: tabId })}
+      />
+    `;
+  } else if (!loading) {
+    page = html`
+      <main className="page">
+        <section className="panel empty-money">
+          <h2>Денежных вкладок пока нет</h2>
+          <p>Создайте первую вкладку и собирайте таблицу из названий и сумм в одном месте.</p>
+          <button type="button" className="button button--blue" onClick=${() => createMoneyTab("Новый план")} disabled=${saving}>Добавить вкладку</button>
+        </section>
+      </main>
+    `;
+  }
+
+  if (!session) {
+    return html`
+      <div className="app-shell app-shell--auth">
+        ${page}
+        ${toast && html`<div className=${`toast toast--${toast.tone}`}>${toast.text}</div>`}
+      </div>
+    `;
+  }
+
+  const submitComment = (post) => {
+    const text = String(commentDrafts[post.id] || "").trim();
+    if (!text || saving) return;
+    const timestamp = nowISO();
+    onSave({
+      ...state,
+      posts: state.posts.map((item) => (item.id === post.id ? normalizePost({
+        ...item,
+        comments: [
+          ...(item.comments || []),
+          normalizeComment({
+            id: uid("comment"),
+            author: actor || "Lesha",
+            text,
+            createdAt: timestamp,
+            createdBy: actor || "Lesha",
+            updatedAt: timestamp,
+            updatedBy: actor || "Lesha",
+          }),
+        ],
+        updatedAt: timestamp,
+        updatedBy: actor || item.updatedBy || item.author,
+      }) : item)),
+    }, "Комментарий добавлен");
+    setCommentDrafts((current) => ({ ...current, [post.id]: "" }));
+    setExpandedComments((current) => ({ ...current, [post.id]: true }));
+  };
+
+  const persistPostComments = (postId, updater, message) => {
+    const timestamp = nowISO();
+    onSave({
+      ...state,
+      posts: state.posts.map((post) => (post.id === postId ? normalizePost({
+        ...post,
+        comments: updater(post.comments || [], timestamp),
+        updatedAt: timestamp,
+        updatedBy: actor || post.updatedBy || post.author,
+      }) : post)),
+    }, message);
+  };
+
+  const addComment = (postId) => {
+    const text = String(commentDrafts[postId] || "").trim();
+    if (!text || saving) return;
+    persistPostComments(postId, (comments, timestamp) => ([
+      ...comments,
+      normalizeComment({
+        id: uid("comment"),
+        author: actor || "Lesha",
+        text,
+        createdAt: timestamp,
+        createdBy: actor || "Lesha",
+        updatedAt: timestamp,
+        updatedBy: actor || "Lesha",
+      }),
+    ]), "Комментарий добавлен");
+    setCommentDrafts((current) => ({ ...current, [postId]: "" }));
+    setExpandedComments((current) => ({ ...current, [postId]: true }));
+  };
+
+  const startEditComment = (postId, comment) => {
+    setCommentMenuKey("");
+    setEditingCommentKey(`${postId}:${comment.id}`);
+    setEditingCommentText(comment.text || "");
+    setExpandedComments((current) => ({ ...current, [postId]: true }));
+  };
+
+  const saveEditedComment = (postId, commentId) => {
+    const text = String(editingCommentText || "").trim();
+    if (!text || saving) return;
+    persistPostComments(postId, (comments, timestamp) => comments.map((comment) => (
+      comment.id === commentId
+        ? normalizeComment({
+          ...comment,
+          text,
+          updatedAt: timestamp,
+          updatedBy: actor || comment.updatedBy || comment.author,
+        })
+        : comment
+    )), "Комментарий обновлён");
+    setEditingCommentKey("");
+    setEditingCommentText("");
+  };
+
+  const removeComment = (postId, commentId) => {
+    setCommentMenuKey("");
+    if (editingCommentKey === `${postId}:${commentId}`) {
+      setEditingCommentKey("");
+      setEditingCommentText("");
+    }
+    persistPostComments(postId, (comments) => comments.filter((comment) => comment.id !== commentId), "Комментарий удалён");
+  };
 
   return html`
-    <div className=${`app-shell${saving ? " is-busy" : ""}`}>
+    <div className="app-shell">
       <header className="topbar">
         <nav className="nav-tabs" aria-label="Навигация">
-          ${NAV_ITEMS.map((item) => html`
+          ${FIXED_NAV_ITEMS.map((item) => html`
             <button
               key=${item.id}
               type="button"
@@ -661,25 +1007,81 @@ function App() {
             >${item.label}</button>
           `)}
         </nav>
-        <div className="theme-menu">
-          <button type="button" className="icon-button" onClick=${() => setThemeMenuOpen((value) => !value)} disabled=${saving}>◐</button>
-          ${themeMenuOpen && html`
-            <div className="theme-menu__list">
-              ${THEMES.map((theme) => html`
-                <button
-                  key=${theme.id}
-                  type="button"
-                  className=${`theme-option${state.settings.theme === theme.id ? " is-active" : ""}`}
-                  onClick=${() => changeTheme(theme.id)}
-                >${theme.label}</button>
-              `)}
-            </div>
-          `}
+
+        <div className="topbar-actions">
+          <div className="session-chip">
+            <strong>${session.role}</strong>
+            <span>${state.settings.lastUpdatedBy ? `последнее обновление: ${state.settings.lastUpdatedBy}` : "рабочая сессия"}</span>
+          </div>
+
+          <div className="theme-menu">
+            <button type="button" className="icon-button" onClick=${() => setThemeMenuOpen((value) => !value)} disabled=${saving}>◐</button>
+            ${themeMenuOpen && html`
+              <div className="theme-menu__list">
+                ${THEMES.map((theme) => html`
+                  <button
+                    key=${theme.id}
+                    type="button"
+                    className=${`theme-option${state.settings.theme === theme.id ? " is-active" : ""}`}
+                    onClick=${() => changeTheme(theme.id)}
+                  >${theme.label}</button>
+                `)}
+              </div>
+            `}
+          </div>
+
+          <button type="button" className="button button--ghost" onClick=${handleLogout} disabled=${saving}>Выйти</button>
         </div>
       </header>
+
       ${page}
       ${toast && html`<div className=${`toast toast--${toast.tone}`}>${toast.text}</div>`}
     </div>
+  `;
+}
+
+function LoginPage({ saving, onSubmit }) {
+  const [role, setRole] = useState("Lesha");
+  const [password, setPassword] = useState("");
+
+  return html`
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div className="auth-copy">
+          <h1>Вход</h1>
+          <p>Роли привязаны к минимальной авторизации. Все изменения дальше будут подписываться выбранным пользователем.</p>
+        </div>
+
+        <label className="field">
+          <span>Роль</span>
+          <select value=${role} onChange=${(event) => setRole(event.target.value)} disabled=${saving}>
+            <option value="Lesha">Lesha</option>
+            <option value="Lera">Lera</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span>Пароль</span>
+          <input
+            type="password"
+            value=${password}
+            onInput=${(event) => setPassword(event.target.value)}
+            placeholder="Введите пароль"
+            disabled=${saving}
+          />
+        </label>
+
+        <button
+          type="button"
+          className="button button--blue auth-button"
+          onClick=${() => onSubmit({ role, password })}
+          disabled=${saving || !password}
+        >
+          ${saving ? html`<${ButtonSpinner} />` : null}
+          <span>${saving ? "Входим..." : "Войти"}</span>
+        </button>
+      </section>
+    </main>
   `;
 }
 
@@ -704,7 +1106,7 @@ function ButtonSpinner() {
   return html`<span className="button-spinner" aria-hidden="true"></span>`;
 }
 
-function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
+function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) {
   const dateKey = kind === "planner" ? "plannerSelectedDate" : "dogsSelectedDate";
   const listKey = kind === "planner" ? "plannerEntries" : "dogsEntries";
   const selectedDate = state[dateKey] || todayISO();
@@ -722,22 +1124,28 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
   }, [activeEntry?.id, activeEntry?.updatedAt, selectedDate]);
 
   const saveEntry = async () => {
-    const entryDate = draft.repeatMonthly && activeEntry?.repeatMonthly ? activeEntry.date : selectedDate;
-    const nextEntry = {
+    const timestamp = nowISO();
+    const nextEntry = normalizeEntry({
       id: activeEntry?.id || uid(kind),
-      date: entryDate,
+      date: activeEntry?.repeatMonthly ? activeEntry.date : selectedDate,
       text: draft.text.trim(),
       repeatMonthly: draft.repeatMonthly,
-      updatedAt: nowISO(),
-    };
-    const nextState = {
+      createdAt: activeEntry?.createdAt || timestamp,
+      createdBy: activeEntry?.createdBy || actor,
+      updatedAt: timestamp,
+      updatedBy: actor,
+    }, kind);
+
+    const saved = await onSave({
       ...state,
       [dateKey]: selectedDate,
       [listKey]: upsertEntry(entries, nextEntry),
-    };
-    const saved = await onSave(nextState, "Запись сохранена");
+    }, "Запись сохранена");
+
     if (saved) setEditing(false);
   };
+
+  const entryMeta = actorStamp(activeEntry?.updatedBy || activeEntry?.createdBy, activeEntry?.updatedAt || activeEntry?.createdAt);
 
   return html`
     <main className="page">
@@ -747,6 +1155,7 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
             <h2>${title}</h2>
             <p>${activeEntry ? (activeEntry.repeatMonthly ? "Повторяется каждый месяц" : formatDate(selectedDate)) : `Новая запись на ${formatDate(selectedDate)}`}</p>
           </div>
+
           <div className="note-toolbar">
             <label className="date-field">
               <span>Дата</span>
@@ -757,9 +1166,11 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
                 disabled=${saving}
               />
             </label>
+
             ${!editing && html`
               <button type="button" className="button button--blue button--equal" onClick=${() => setEditing(true)} disabled=${saving}>Редактировать</button>
             `}
+
             ${editing && html`
               <button type="button" className="button button--red button--equal" onClick=${saveEntry} disabled=${saving || !draft.text.trim()}>
                 ${saving ? html`<${ButtonSpinner} />` : null}
@@ -768,6 +1179,7 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
             `}
           </div>
         </div>
+
         <div className="editor-card">
           ${editing ? html`
             <div className="editor-stack">
@@ -775,9 +1187,10 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
                 className="editor-textarea"
                 value=${draft.text}
                 onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
-                placeholder="Запишите расходы, важные суммы, напоминания"
+                placeholder="Запишите план, расходы, напоминания или договорённости"
                 disabled=${saving}
               ></textarea>
+
               <label className="checkbox-row">
                 <input
                   type="checkbox"
@@ -792,6 +1205,7 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
             <div className="note-view">
               <div className="note-date-pill">${activeEntry?.repeatMonthly ? "Каждый месяц" : formatDate(selectedDate)}</div>
               <div className="note-text">${activeEntry?.text || "На эту дату пока нет записи."}</div>
+              ${entryMeta ? html`<div className="meta-line">Обновил: ${entryMeta}</div>` : null}
             </div>
           `}
         </div>
@@ -800,12 +1214,82 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving }) {
   `;
 }
 
-function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
+function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving, actor }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState("");
   const [lightbox, setLightbox] = useState(null);
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [expandedComments, setExpandedComments] = useState({});
+  const [commentMenuKey, setCommentMenuKey] = useState("");
+  const [editingCommentKey, setEditingCommentKey] = useState("");
+  const [editingCommentText, setEditingCommentText] = useState("");
   const posts = useMemo(() => sortedPosts([...state.posts], state.feedFilters), [state.posts, state.feedFilters]);
   const isArchived = state.feedFilters.mode === "archived";
+
+  const persistPostComments = (postId, updater, message) => {
+    const timestamp = nowISO();
+    onSave({
+      ...state,
+      posts: state.posts.map((post) => (post.id === postId ? normalizePost({
+        ...post,
+        comments: updater(post.comments || [], timestamp),
+        updatedAt: timestamp,
+        updatedBy: actor || post.updatedBy || post.author,
+      }) : post)),
+    }, message);
+  };
+
+  const addComment = (postId) => {
+    const text = String(commentDrafts[postId] || "").trim();
+    if (!text || saving) return;
+    persistPostComments(postId, (comments, timestamp) => ([
+      ...comments,
+      normalizeComment({
+        id: uid("comment"),
+        author: actor || "Lesha",
+        text,
+        createdAt: timestamp,
+        createdBy: actor || "Lesha",
+        updatedAt: timestamp,
+        updatedBy: actor || "Lesha",
+      }),
+    ]), "Комментарий добавлен");
+    setCommentDrafts((current) => ({ ...current, [postId]: "" }));
+    setExpandedComments((current) => ({ ...current, [postId]: true }));
+  };
+
+  const startEditComment = (postId, comment) => {
+    setCommentMenuKey("");
+    setEditingCommentKey(`${postId}:${comment.id}`);
+    setEditingCommentText(comment.text || "");
+    setExpandedComments((current) => ({ ...current, [postId]: true }));
+  };
+
+  const saveEditedComment = (postId, commentId) => {
+    const text = String(editingCommentText || "").trim();
+    if (!text || saving) return;
+    persistPostComments(postId, (comments, timestamp) => comments.map((comment) => (
+      comment.id === commentId
+        ? normalizeComment({
+          ...comment,
+          text,
+          updatedAt: timestamp,
+          updatedBy: actor || comment.updatedBy || comment.author,
+        })
+        : comment
+    )), "Комментарий обновлён");
+    setEditingCommentKey("");
+    setEditingCommentText("");
+  };
+
+  const removeComment = (postId, commentId) => {
+    setCommentMenuKey("");
+    if (editingCommentKey === `${postId}:${commentId}`) {
+      setEditingCommentKey("");
+      setEditingCommentText("");
+    }
+    persistPostComments(postId, (comments) => comments.filter((comment) => comment.id !== commentId), "Комментарий удалён");
+  };
 
   useEffect(() => {
     if (!menuOpenId) return undefined;
@@ -818,19 +1302,38 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [menuOpenId]);
 
+  useEffect(() => {
+    if (!commentMenuKey) return undefined;
+    const handleOutside = (event) => {
+      if (!event.target.closest(".comment-menu-wrap")) {
+        setCommentMenuKey("");
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [commentMenuKey]);
+
   const updatePost = (postId, patch, message) => {
+    const timestamp = nowISO();
     const nextState = {
       ...state,
-      posts: state.posts.map((post) => (post.id === postId ? { ...post, ...patch } : post)),
+      posts: state.posts.map((post) => (post.id === postId ? {
+        ...post,
+        ...patch,
+        updatedAt: timestamp,
+        updatedBy: patch.updatedBy || actor || post.updatedBy || post.author,
+      } : post)),
     };
     setMenuOpenId("");
     onSave(nextState, message);
   };
 
   const deletePost = (postId) => {
-    const nextState = { ...state, posts: state.posts.filter((post) => post.id !== postId) };
     setMenuOpenId("");
-    onSave(nextState, "Пост удалён");
+    onSave({
+      ...state,
+      posts: state.posts.filter((post) => post.id !== postId),
+    }, "Пост удалён");
   };
 
   return html`
@@ -840,6 +1343,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
           <span className="create-post__plus">+</span>
           <span>Создать пост</span>
         </button>
+
         <div className="composer-actions">
           <label className="search-shell">
             <span className="search-shell__icon">⌕</span>
@@ -853,6 +1357,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
           </label>
         </div>
       </section>
+
       <section className="panel feed-board">
         <div className="feed-board__head">
           <div className="feed-switches">
@@ -869,55 +1374,199 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
               disabled=${saving}
             >Архив</button>
           </div>
-          <div className="feed-board__meta">${isArchived ? "Архивные записи" : "Актуальные публикации"}</div>
+          <div className="feed-board__meta">${isArchived ? "Архивные публикации" : "Актуальные публикации"}</div>
         </div>
+
         <div className="feed-stack feed-stack--board">
-          ${posts.length
-            ? posts.map((post, index) => html`
-              <article key=${post.id} className=${`post-card post-card--flat${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
-                <div className="post-head">
-                  <div>
-                    <div className="post-author">${post.author || "Лёша"}</div>
-                    ${(post.pinned || post.archived) ? html`<div className="post-meta">${post.pinned ? "Закреплено" : "Архив"}</div>` : null}
-                  </div>
-                  <div className="post-menu-wrap">
-                    <button type="button" className="menu-button" onClick=${() => setMenuOpenId((value) => value === post.id ? "" : post.id)} disabled=${saving}>⋯</button>
-                    ${menuOpenId === post.id && html`
-                      <div className="post-menu">
-                        <button type="button" className="post-menu__item" onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплён" : "Пост закреплён")}>
-                          <span className="post-menu__icon">📌</span>
-                          <span className="post-menu__label">${post.pinned ? "Открепить" : "Закрепить"}</span>
-                        </button>
-                        <button type="button" className="post-menu__item" onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращён из архива" : "Пост отправлен в архив")}>
-                          <span className="post-menu__icon">🗃</span>
-                          <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
-                        </button>
-                        <button type="button" className="post-menu__item is-danger" onClick=${() => deletePost(post.id)}>
-                          <span className="post-menu__icon">🗑</span>
-                          <span className="post-menu__label">Удалить</span>
-                        </button>
-                      </div>
-                    `}
-                  </div>
+          ${posts.length ? posts.map((post, index) => html`
+            <article key=${post.id} className=${`post-card post-card--flat${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
+              <div className="post-head">
+                <div>
+                  <div className="post-author">${post.author || "Lesha"}</div>
+                  ${(post.pinned || post.archived) ? html`
+                    <div className="post-meta">${post.pinned ? "Закреплено" : "Архив"}</div>
+                  ` : null}
                 </div>
-                ${post.images?.length ? html`
-                  <div className=${`post-gallery gallery-${Math.min(post.images.length, 4)}`}>
-                    ${post.images.map((image) => html`
-                      <button key=${image.fileId || image.imageUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
-                        <img src=${imageSrc(image)} alt="Изображение публикации" />
+
+                <div className="post-menu-wrap">
+                  <button type="button" className="menu-button" onClick=${() => setMenuOpenId((value) => value === post.id ? "" : post.id)} disabled=${saving}>⋯</button>
+                  ${menuOpenId === post.id && html`
+                    <div className="post-menu">
+                      <button
+                        type="button"
+                        className="post-menu__item"
+                        onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплён" : "Пост закреплён")}
+                      >
+                        <span className="post-menu__icon">📌</span>
+                        <span className="post-menu__label">${post.pinned ? "Открепить" : "Закрепить"}</span>
                       </button>
-                    `)}
-                  </div>
-                ` : null}
-                ${post.text ? html`<div className="post-text">${post.text}</div>` : null}
+                      <button
+                        type="button"
+                        className="post-menu__item"
+                        onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращён" : "Пост отправлен в архив")}
+                      >
+                        <span className="post-menu__icon">🗃</span>
+                        <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
+                      </button>
+                      <button type="button" className="post-menu__item is-danger" onClick=${() => deletePost(post.id)}>
+                        <span className="post-menu__icon">🗑</span>
+                        <span className="post-menu__label">Удалить</span>
+                      </button>
+                    </div>
+                  `}
+                </div>
+              </div>
+
+              ${post.images?.length ? html`
+                <div className=${`post-gallery gallery-${Math.min(post.images.length, 4)}`}>
+                  ${post.images.map((image) => html`
+                    <button key=${image.fileId || image.imageUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
+                      <img src=${imageSrc(image)} alt="Изображение публикации" />
+                    </button>
+                  `)}
+                </div>
+              ` : null}
+
+              ${post.text ? html`<div className="post-text">${post.text}</div>` : null}
+
+              <div className="post-footer">
+                <div className="post-footer__meta">${post.updatedBy ? `Обновил ${post.updatedBy}` : `Создал ${post.author}`}</div>
                 <div className="post-dates">${formatShortDate(post.startDate)}${post.endDate && post.endDate !== post.startDate ? ` - ${formatShortDate(post.endDate)}` : ""}</div>
-                ${index < posts.length - 1 ? html`<div className="post-divider"></div>` : null}
-              </article>
-            `)
-            : html`<section className="empty-state"><h3>${isArchived ? "Архив пока пуст" : "Лента пока пустая"}</h3><p>${isArchived ? "Сюда попадут публикации после отправки в архив." : "Первый пост можно добавить через верхнюю кнопку."}</p></section>`}
+              </div>
+
+              <div className="post-comments">
+                ${post.comments?.length > 2 && !expandedComments[post.id] ? html`
+                  <button
+                    type="button"
+                    className="post-comments__more"
+                    onClick=${() => setExpandedComments((current) => ({ ...current, [post.id]: true }))}
+                  >
+                    Показать ещё ${post.comments.length - 2}
+                  </button>
+                ` : null}
+
+                <div className="comment-list">
+                  ${(expandedComments[post.id] ? post.comments : (post.comments || []).slice(-2)).map((comment) => html`
+                    <article key=${comment.id} className="comment-item">
+                      <div className="comment-avatar">${initials(comment.author)}</div>
+                      <div className="comment-bubble">
+                        <div className="comment-top">
+                          <div className="comment-author-row">
+                            <strong className="comment-author">${comment.author}</strong>
+                            ${comment.author === post.author ? html`<span className="comment-role">Автор</span>` : null}
+                          </div>
+                          <div className="comment-menu-wrap">
+                            <button
+                              type="button"
+                              className="menu-button comment-menu-button"
+                              onClick=${() => setCommentMenuKey((value) => value === `${post.id}:${comment.id}` ? "" : `${post.id}:${comment.id}`)}
+                              disabled=${saving}
+                            >⋯</button>
+                            ${commentMenuKey === `${post.id}:${comment.id}` ? html`
+                              <div className="post-menu comment-menu">
+                                <button
+                                  type="button"
+                                  className="post-menu__item"
+                                  onClick=${() => startEditComment(post.id, comment)}
+                                >
+                                  <span className="post-menu__icon">✎</span>
+                                  <span className="post-menu__label">Редактировать</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="post-menu__item is-danger"
+                                  onClick=${() => removeComment(post.id, comment.id)}
+                                >
+                                  <span className="post-menu__icon">🗑</span>
+                                  <span className="post-menu__label">Удалить комментарий</span>
+                                </button>
+                              </div>
+                            ` : null}
+                          </div>
+                        </div>
+                        ${editingCommentKey === `${post.id}:${comment.id}` ? html`
+                          <div className="comment-edit">
+                            <input
+                              type="text"
+                              value=${editingCommentText}
+                              onInput=${(event) => setEditingCommentText(event.target.value)}
+                              disabled=${saving}
+                            />
+                            <div className="comment-edit__actions">
+                              <button
+                                type="button"
+                                className="button button--blue button--small"
+                                onClick=${() => saveEditedComment(post.id, comment.id)}
+                                disabled=${saving || !String(editingCommentText || "").trim()}
+                              >Сохранить</button>
+                              <button
+                                type="button"
+                                className="button button--ghost button--small"
+                                onClick=${() => {
+                                  setEditingCommentKey("");
+                                  setEditingCommentText("");
+                                }}
+                                disabled=${saving}
+                              >Отмена</button>
+                            </div>
+                          </div>
+                        ` : html`
+                          <div className="comment-text">${comment.text}</div>
+                          <div className="comment-meta">${formatTime(comment.createdAt)}</div>
+                        `}
+                      </div>
+                    </article>
+                  `)}
+                </div>
+
+                <div className="comment-compose">
+                  <div className="comment-avatar is-self">${initials(actor || "L")}</div>
+                  <div className="comment-compose__field">
+                    <input
+                      type="text"
+                      value=${commentDrafts[post.id] || ""}
+                      onInput=${(event) => setCommentDrafts((current) => ({ ...current, [post.id]: event.target.value }))}
+                      onKeyDown=${(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addComment(post.id);
+                        }
+                      }}
+                      placeholder="Написать комментарий..."
+                      disabled=${saving}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="comment-send"
+                    onClick=${() => addComment(post.id)}
+                    disabled=${saving || !String(commentDrafts[post.id] || "").trim()}
+                  >➤</button>
+                </div>
+              </div>
+
+              ${index < posts.length - 1 ? html`<div className="post-divider"></div>` : null}
+            </article>
+          `) : html`
+            <section className="empty-state">
+              <h3>${isArchived ? "Архив пока пуст" : "Лента пока пустая"}</h3>
+              <p>${isArchived ? "Сюда попадут публикации после переноса в архив." : "Первый пост можно добавить через верхнюю кнопку."}</p>
+            </section>
+          `}
         </div>
       </section>
-      ${modalOpen && html`<${PostModal} onClose=${() => setModalOpen(false)} onSubmit=${async (draft) => { const saved = await onCreatePost(draft); if (saved) setModalOpen(false); }} saving=${saving} />`}
+
+      ${modalOpen && html`
+        <${PostModal}
+          saving=${saving}
+          onClose=${() => setModalOpen(false)}
+          onSubmit=${async (draft) => {
+            const saved = await onCreatePost(draft);
+            if (saved) setModalOpen(false);
+          }}
+        />
+      `}
+
       ${lightbox && html`
         <div className="lightbox" onClick=${() => setLightbox(null)}>
           <div className="lightbox__frame" onClick=${(event) => event.stopPropagation()}>
@@ -930,9 +1579,8 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving }) {
   `;
 }
 
-function PostModal({ onClose, onSubmit, saving }) {
+function PostModal({ saving, onClose, onSubmit }) {
   const [draft, setDraft] = useState({
-    author: "Лёша",
     text: "",
     pinned: false,
     startDate: todayISO(),
@@ -942,42 +1590,66 @@ function PostModal({ onClose, onSubmit, saving }) {
   });
   const [emojiOpen, setEmojiOpen] = useState(false);
 
-  const changeFiles = (files) => {
-    const list = Array.from(files || []);
-    setDraft((current) => ({
-      ...current,
-      files: list,
-      previews: list.map((file) => URL.createObjectURL(file)),
-    }));
+  const changeFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    setDraft((current) => {
+      current.previews.forEach((preview) => URL.revokeObjectURL(preview));
+      return {
+        ...current,
+        files,
+        previews: files.map((file) => URL.createObjectURL(file)),
+      };
+    });
   };
 
   useEffect(() => () => {
-    draft.previews.forEach((src) => URL.revokeObjectURL(src));
+    draft.previews.forEach((preview) => URL.revokeObjectURL(preview));
   }, [draft.previews]);
+
+  useEffect(() => {
+    if (!emojiOpen) return undefined;
+    const handleOutside = (event) => {
+      if (!event.target.closest(".emoji-wrap")) {
+        setEmojiOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [emojiOpen]);
 
   return html`
     <div className="modal-backdrop" onClick=${onClose}>
-      <div className="modal-sheet" onClick=${(event) => event.stopPropagation()}>
+      <div className="modal-sheet modal-sheet--post" onClick=${(event) => event.stopPropagation()}>
         <div className="modal-head">
-          <h3>Новый пост</h3>
+          <div>
+            <h3>Новый пост</h3>
+            <p>Фотографии и текст можно опубликовать одной карточкой.</p>
+          </div>
           <button type="button" className="modal-close" onClick=${onClose}>×</button>
         </div>
-        <label className="upload-drop">
+
+        <label className="upload-drop upload-drop--compact">
           <input type="file" accept="image/*" multiple onChange=${(event) => changeFiles(event.target.files)} disabled=${saving} hidden />
           <span>Добавить фото</span>
           <small>Файлы с телефона и ПК</small>
         </label>
+
         ${draft.previews.length ? html`
-          <div className=${`post-gallery gallery-${Math.min(draft.previews.length, 4)}`}>
-            ${draft.previews.map((src) => html`<div key=${src} className="gallery-item is-static"><img src=${src} alt="Предпросмотр" /></div>`)}
+          <div className=${`post-gallery gallery-${Math.min(draft.previews.length, 4)} post-gallery--preview`}>
+            ${draft.previews.map((preview) => html`
+              <div key=${preview} className="gallery-item is-static">
+                <img src=${preview} alt="Предпросмотр" />
+              </div>
+            `)}
           </div>
         ` : null}
+
         <div className="modal-fields">
           <div className="field">
             <span>Текст</span>
             <div className="emoji-wrap">
               <textarea
-                className="editor-textarea"
+                className="editor-textarea editor-textarea--modal"
                 value=${draft.text}
                 onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
                 placeholder="Напишите что-нибудь"
@@ -995,6 +1667,7 @@ function PostModal({ onClose, onSubmit, saving }) {
               </div>
             </div>
           </div>
+
           <div className="field-row">
             <label className="field">
               <span>Начало</span>
@@ -1005,12 +1678,19 @@ function PostModal({ onClose, onSubmit, saving }) {
               <input type="date" value=${draft.endDate} onInput=${(event) => setDraft((current) => ({ ...current, endDate: event.target.value }))} disabled=${saving} />
             </label>
           </div>
+
           <div className="field-row field-row--end">
             <label className="checkbox-row">
               <input type="checkbox" checked=${draft.pinned} onChange=${(event) => setDraft((current) => ({ ...current, pinned: event.target.checked }))} disabled=${saving} />
               <span>Закрепить</span>
             </label>
-            <button type="button" className="button button--red" onClick=${() => onSubmit(draft)} disabled=${saving || (!draft.text.trim() && !draft.files.length)}>
+
+            <button
+              type="button"
+              className="button button--red"
+              onClick=${() => onSubmit(draft)}
+              disabled=${saving || (!draft.text.trim() && !draft.files.length)}
+            >
               ${saving ? html`<${ButtonSpinner} />` : null}
               <span>${saving ? "Публикация..." : "Опубликовать"}</span>
             </button>
@@ -1021,21 +1701,21 @@ function PostModal({ onClose, onSubmit, saving }) {
   `;
 }
 
-function CalendarPage({ state, onSave, onLocalChange }) {
+function CalendarPage({ state, onLocalChange }) {
   const monthKey = state.calendarMonth || toMonthKey(todayISO());
   const [selectedDate, setSelectedDate] = useState(`${monthKey}-01`);
   const days = useMemo(() => monthMatrix(monthKey), [monthKey]);
   const events = useMemo(() => collectEventsForDate(state, selectedDate), [state, selectedDate]);
   const monthLabel = new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(new Date(`${monthKey}-01T12:00:00`));
-  const eventTotals = useMemo(() => {
-    const totals = { planner: 0, dogs: 0, post: 0 };
-    days.forEach((date) => {
-      if (!date) return;
-      collectEventsForDate(state, date).forEach((item) => {
-        totals[item.type] += 1;
+  const totals = useMemo(() => {
+    const next = { planner: 0, dogs: 0, post: 0 };
+    days.forEach((day) => {
+      if (!day) return;
+      collectEventsForDate(state, day).forEach((item) => {
+        next[item.type] += 1;
       });
     });
-    return totals;
+    return next;
   }, [days, state]);
 
   useEffect(() => {
@@ -1054,8 +1734,9 @@ function CalendarPage({ state, onSave, onLocalChange }) {
         <div className="page-head">
           <div>
             <h2>Проверка плана по датам</h2>
-            <p>Календарь показывает траты, заметки по собакам и публикации из ленты.</p>
+            <p>Календарь собирает записи из планировщика, собак и ленты.</p>
           </div>
+
           <div className="calendar-controls">
             <button type="button" className="icon-button" onClick=${() => shiftMonth(-1)}>←</button>
             <div className="calendar-month-pill">${monthLabel}</div>
@@ -1066,11 +1747,13 @@ function CalendarPage({ state, onSave, onLocalChange }) {
             </label>
           </div>
         </div>
+
         <div className="calendar-summary">
-          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>Траты: ${eventTotals.planner}</span></div>
-          <div className="calendar-summary__item"><i className="dot dot--dogs"></i><span>Собаки: ${eventTotals.dogs}</span></div>
-          <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента: ${eventTotals.post}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>Траты: ${totals.planner}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--dogs"></i><span>Собаки: ${totals.dogs}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента: ${totals.post}</span></div>
         </div>
+
         <div className="calendar-grid">
           <div className="calendar-week">Пн</div>
           <div className="calendar-week">Вт</div>
@@ -1079,23 +1762,26 @@ function CalendarPage({ state, onSave, onLocalChange }) {
           <div className="calendar-week">Пт</div>
           <div className="calendar-week">Сб</div>
           <div className="calendar-week">Вс</div>
-          ${days.map((date, index) => {
-            if (!date) return html`<div key=${`empty-${index}`} className="calendar-cell is-empty"></div>`;
-            const cellEvents = collectEventsForDate(state, date);
-            const previewEvents = previewEventsForDate(state, date);
+
+          ${days.map((day, index) => {
+            if (!day) {
+              return html`<div key=${`empty-${index}`} className="calendar-cell is-empty"></div>`;
+            }
+            const cellEvents = collectEventsForDate(state, day);
+            const preview = previewEventsForDate(state, day);
             return html`
               <button
-                key=${date}
+                key=${day}
                 type="button"
-                className=${`calendar-cell${selectedDate === date ? " is-active" : ""}`}
-                onClick=${() => setSelectedDate(date)}
+                className=${`calendar-cell${selectedDate === day ? " is-active" : ""}`}
+                onClick=${() => setSelectedDate(day)}
               >
                 <div className="calendar-cell__top">
-                  <span className="calendar-cell__day">${date.slice(8, 10)}</span>
-                  <small className="calendar-cell__count">${cellEvents.length ? `${cellEvents.length}` : ""}</small>
+                  <span className="calendar-cell__day">${day.slice(8, 10)}</span>
+                  <small className="calendar-cell__count">${cellEvents.length || ""}</small>
                 </div>
                 <div className="calendar-lines">
-                  ${previewEvents.map((item) => html`
+                  ${preview.map((item) => html`
                     <div key=${item.id} className=${`calendar-line calendar-line--${item.type}`}>
                       <span>${item.label}</span>
                     </div>
@@ -1106,300 +1792,454 @@ function CalendarPage({ state, onSave, onLocalChange }) {
           })}
         </div>
       </section>
+
       <section className="panel agenda-panel">
         <div className="page-head">
           <div>
             <h2>${formatDate(selectedDate)}</h2>
-            <p>${events.length ? "Все события на выбранную дату." : "На выбранную дату пока ничего нет."}</p>
+            <p>${events.length ? "Все события на выбранный день." : "На выбранную дату событий пока нет."}</p>
           </div>
         </div>
+
         <div className="agenda-list">
           ${events.length ? events.map((item) => html`
             <article key=${item.id} className="agenda-item">
               <div className=${`agenda-badge agenda-badge--${item.type}`}>${item.label}</div>
               <div className="agenda-text">${item.text}</div>
             </article>
-          `) : html`<div className="empty-state empty-state--soft"><p>Календарь станет плотнее, когда появятся записи и публикации.</p></div>`}
+          `) : html`
+            <div className="empty-state empty-state--soft">
+              <p>Календарь станет плотнее, когда появятся новые записи и публикации.</p>
+            </div>
+          `}
         </div>
       </section>
     </main>
   `;
 }
 
-function AiPage({ state, onSave, onLocalChange, saving }) {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("budget-ai-key") || "");
-  const [working, setWorking] = useState(false);
-  const [localCsv, setLocalCsv] = useState({
-    fileName: "",
-    csvText: "",
-    rows: [],
-    mappings: [],
-    summary: null,
-    customTargets: [],
-  });
-  const [newTargetName, setNewTargetName] = useState("");
-  const mappings = localCsv.mappings;
-  const boardColumns = useMemo(() => {
-    const targetBySource = new Map(mappings.map((item) => [normalizeKey(item.source), (item.target || item.source).trim()]));
-    const targets = [...new Set([
-      ...mappings.map((item) => item.target.trim()).filter(Boolean),
-      ...(localCsv.customTargets || []).map((item) => item.trim()).filter(Boolean),
-    ])];
-    return targets.map((target) => {
-      const groups = mappings.filter((item) => (item.target || item.source).trim() === target);
-      const operations = localCsv.rows
-        .filter((row) => targetBySource.get(row.sourceKey) === target)
-        .sort((left, right) => right.dateValue - left.dateValue);
-      return {
-        id: target,
-        title: target,
-        groups,
-        operations,
-        operationsCount: operations.length,
-        total: operations.reduce((sum, item) => sum + (item.amount || 0), 0),
-      };
-    }).sort((left, right) => Math.abs(right.total) - Math.abs(left.total));
-  }, [mappings, localCsv.customTargets, localCsv.rows]);
+function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete, onAddTab, onSelectTab }) {
+  const [title, setTitle] = useState(tab?.title || "");
+  const [groups, setGroups] = useState(() => (tab?.groups || []).map((group) => ({
+    ...group,
+    items: (group.items || []).map((item) => ({ ...item })),
+  })));
+  const [creating, setCreating] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [editingGroups, setEditingGroups] = useState({});
+  const [editingItems, setEditingItems] = useState({});
+  const [itemDrafts, setItemDrafts] = useState({});
+  const [titleError, setTitleError] = useState("");
+  const [titleShake, setTitleShake] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("budget-ai-key", apiKey);
-  }, [apiKey]);
+    setTitle(tab?.title || "");
+    setGroups((tab?.groups || []).map((group) => ({
+      ...group,
+      items: (group.items || []).map((item) => ({ ...item })),
+    })));
+    setEditingGroups({});
+    setEditingItems({});
+    setItemDrafts({});
+    setTitleError("");
+    setTitleShake(false);
+  }, [tab?.id, tab?.title, tab?.updatedAt, tab?.groups?.length]);
 
-  const updateAiLocal = (patch) => {
-    onLocalChange({ ...state, ai: { ...state.ai, ...patch } });
+  useEffect(() => {
+    if (!titleShake) return undefined;
+    const timeout = window.setTimeout(() => setTitleShake(false), 420);
+    return () => window.clearTimeout(timeout);
+  }, [titleShake]);
+
+  const startCreate = () => {
+    setDraftTitle("");
+    setCreating(true);
   };
 
-  const updateAi = (patch, message = "Данные обновлены") => {
-    onSave({ ...state, ai: { ...state.ai, ...patch } }, message);
+  const cancelCreate = () => {
+    setDraftTitle("");
+    setCreating(false);
   };
 
-  const handleCsv = async (file) => {
-    const csvText = await readCsvFile(file);
-    const parsed = buildLocalAiData(csvText, localCsv.mappings);
-    setLocalCsv({
-      fileName: file.name,
-      csvText,
-      rows: parsed.rows,
-      mappings: parsed.mappings,
-      summary: parsed.summary,
-      customTargets: [],
+  const confirmCreate = async () => {
+    const savedTitle = draftTitle.trim();
+    if (!savedTitle) return;
+    await onAddTab(savedTitle);
+    setDraftTitle("");
+    setCreating(false);
+  };
+
+  if (!tab && !creating) {
+    return html`
+      <main className="page">
+        <section className="panel money-panel money-panel--empty">
+          <button type="button" className="money-plus" onClick=${startCreate} disabled=${saving}>+</button>
+        </section>
+      </main>
+    `;
+  }
+
+  if (!tab && creating) {
+    return html`
+      <main className="page">
+        <section className="panel money-panel money-panel--empty">
+          <div className="money-tabs money-tabs--center">
+            <div className="money-tab-editor">
+              <input
+                type="text"
+                value=${draftTitle}
+                onInput=${(event) => setDraftTitle(event.target.value)}
+                placeholder="Название вкладки"
+                disabled=${saving}
+              />
+              <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
+              <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    `;
+  }
+
+  const addGroup = () => {
+    setGroups((current) => [...current, getDefaultMoneyGroup(actor)]);
+  };
+
+  const updateGroup = (groupId, patch) => {
+    setGroups((current) => current.map((group) => (group.id === groupId ? { ...group, ...patch } : group)));
+  };
+
+  const removeGroup = (groupId) => {
+    setGroups((current) => current.filter((group) => group.id !== groupId));
+    setEditingGroups((current) => {
+      const next = { ...current };
+      delete next[groupId];
+      return next;
     });
   };
 
-  const moveMappingToTarget = (mappingId, target) => {
-    setLocalCsv((current) => ({
+  const toggleGroupEditing = (groupId) => {
+    setEditingGroups((current) => ({
       ...current,
-      customTargets: [...new Set([...(current.customTargets || []), target])],
-      mappings: current.mappings.map((item) => item.id === mappingId ? { ...item, target } : item),
+      [groupId]: !current[groupId],
     }));
   };
 
-  const createTargetColumn = () => {
-    const value = newTargetName.trim();
-    if (!value) return;
-    setLocalCsv((current) => ({
-      ...current,
-      customTargets: [...new Set([...(current.customTargets || []), value])],
-    }));
-    setNewTargetName("");
+  const addSubitem = (groupId) => {
+    const nextItem = getDefaultMoneySubitem(actor);
+    setGroups((current) => current.map((group) => (
+      group.id === groupId
+        ? { ...group, items: [...group.items, nextItem] }
+        : group
+    )));
+    setEditingItems((current) => ({ ...current, [nextItem.id]: true }));
+    setItemDrafts((current) => ({ ...current, [nextItem.id]: { ...nextItem } }));
   };
 
-  const runAnalysis = async () => {
-    if (!apiKey) {
-      window.alert("Добавьте API key для ИИ-анализа");
+  const updateSubitem = (groupId, itemId, patch) => {
+    setGroups((current) => current.map((group) => (
+      group.id === groupId
+        ? {
+          ...group,
+          items: group.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
+        }
+        : group
+    )));
+  };
+
+  const removeSubitem = (groupId, itemId) => {
+    setGroups((current) => current.map((group) => (
+      group.id === groupId
+        ? { ...group, items: group.items.filter((item) => item.id !== itemId) }
+        : group
+    )));
+    setEditingItems((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+    setItemDrafts((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+  };
+
+  const groupTotal = (group) => (group.items || []).reduce((sum, item) => sum + parseMoneyInput(item.cost), 0);
+  const total = useMemo(() => groups.reduce((sum, group) => sum + groupTotal(group), 0), [groups]);
+  const initialSignature = useMemo(() => serializeMoneyDraft(tab?.title || "", tab?.groups || []), [tab?.title, tab?.groups]);
+  const currentSignature = useMemo(() => serializeMoneyDraft(title, groups), [title, groups]);
+  const isDirty = initialSignature !== currentSignature;
+
+  const startEditSubitem = (item) => {
+    setEditingItems((current) => ({ ...current, [item.id]: true }));
+    setItemDrafts((current) => ({ ...current, [item.id]: { ...item } }));
+  };
+
+  const updateDraftSubitem = (itemId, patch) => {
+    setItemDrafts((current) => ({
+      ...current,
+      [itemId]: {
+        ...current[itemId],
+        ...patch,
+      },
+    }));
+  };
+
+  const cancelEditSubitem = (itemId) => {
+    setEditingItems((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+    setItemDrafts((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+  };
+
+  const applyEditSubitem = (groupId, itemId) => {
+    const draft = itemDrafts[itemId];
+    if (!draft) return;
+    updateSubitem(groupId, itemId, {
+      ...draft,
+      isNew: false,
+      updatedAt: nowISO(),
+      updatedBy: actor,
+    });
+    cancelEditSubitem(itemId);
+  };
+
+  const saveTab = async () => {
+    if (!isDirty) return;
+    if (!title.trim()) {
+      setTitleError("Введите название плана");
+      setTitleShake(false);
+      window.setTimeout(() => setTitleShake(true), 0);
       return;
     }
-    if (!localCsv.csvText) {
-      window.alert("Сначала загрузите CSV");
-      return;
-    }
-    setWorking(true);
-    try {
-      const response = await fetch(AI_ENDPOINTS[state.ai.provider], {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: state.ai.model,
-          temperature: 0.2,
-          messages: [
-            {
-              role: "system",
-              content: "Ты анализируешь финансовые и текстовые CSV-данные, раскладываешь записи по категориям, отмечаешь спорные места и даёшь короткие рекомендации.",
-            },
-            {
-              role: "user",
-              content: [
-                `Промпт пользователя:\n${state.ai.prompt || "Разбери CSV и предложи понятные категории."}`,
-                `Категории и переводы:\n${JSON.stringify(mappings, null, 2)}`,
-                `CSV:\n${localCsv.csvText.slice(0, 14000)}`,
-              ].join("\n\n"),
-            },
-          ],
-        }),
-      });
-      const data = await response.json();
-      const rawText = data.choices?.[0]?.message?.content || data.error?.message || "Пустой ответ";
-      const text = /quota|billing/i.test(rawText)
-        ? "У текущего AI-провайдера закончилась квота или не подключён биллинг. Проверьте лимиты и оплату в кабинете API, либо переключитесь на другого провайдера."
-        : rawText;
-      updateAi({ analysisResult: text, lastRunAt: nowISO() }, "ИИ-анализ завершён");
-    } catch (error) {
-      window.alert(error.message || "Не удалось получить ответ от ИИ");
-    } finally {
-      setWorking(false);
-    }
+
+    setTitleError("");
+    const timestamp = nowISO();
+    const nextTab = normalizeMoneyTab({
+      ...tab,
+      title: title.trim() || "Планы (деньги)",
+      createdAt: tab.createdAt || timestamp,
+      createdBy: tab.createdBy || actor,
+      updatedAt: timestamp,
+      updatedBy: actor,
+      groups: groups
+        .filter((group) => group.title.trim() || group.items.some((item) => item.name.trim() || String(item.cost).trim()))
+        .map((group) => normalizeMoneyGroup({
+          ...group,
+          title: group.title.trim(),
+          createdAt: group.createdAt || timestamp,
+          createdBy: group.createdBy || actor,
+          updatedAt: timestamp,
+          updatedBy: actor,
+          items: sortMoneySubitems(group.items)
+            .filter((item) => item.name.trim() || String(item.cost).trim())
+            .map((item) => normalizeMoneySubitem({
+              ...item,
+              name: item.name.trim(),
+              cost: String(item.cost || "").trim(),
+              completed: Boolean(item.completed),
+              isNew: false,
+              createdAt: item.createdAt || timestamp,
+              createdBy: item.createdBy || actor,
+              updatedAt: timestamp,
+              updatedBy: actor,
+            })),
+        })),
+    });
+
+    await onSave(tab.id, nextTab);
+  };
+
+  const isSubitemDirty = (item, draft) => {
+    return serializeMoneySubitem(item) !== serializeMoneySubitem(draft);
   };
 
   return html`
     <main className="page">
-      <section className="panel ai-top">
-        <div className="ai-top__left">
-          <div className="page-head">
-            <div>
-              <h2>ИИ-анализ</h2>
-              <p>CSV хранится только локально в браузере и в JSON не записывается.</p>
-            </div>
-          </div>
-          <div className="field-row">
-            <label className="field">
-              <span>Провайдер</span>
-              <select
-                value=${state.ai.provider}
-                onChange=${(event) => {
-                  const provider = event.target.value;
-                  const model = provider === "openai"
-                    ? "gpt-4o-mini"
-                    : provider === "groq"
-                      ? "llama-3.1-8b-instant"
-                      : "deepseek-chat";
-                  updateAiLocal({ provider, model });
-                }}
-                disabled=${saving || working}
-              >
-                <option value="deepseek">DeepSeek</option>
-                <option value="openai">OpenAI</option>
-                <option value="groq">Groq</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Модель</span>
-              <input type="text" value=${state.ai.model} onInput=${(event) => updateAiLocal({ model: event.target.value })} disabled=${saving || working} />
-            </label>
-          </div>
-          <label className="field">
-            <span>API key</span>
-            <input type="password" value=${apiKey} onInput=${(event) => setApiKey(event.target.value)} placeholder="sk-..." disabled=${working} />
-          </label>
-          <label className="upload-drop upload-drop--compact ai-upload">
-            <input type="file" accept=".csv,text/csv" onChange=${(event) => event.target.files?.[0] && handleCsv(event.target.files[0])} disabled=${saving || working} hidden />
-            <span>Загрузить CSV</span>
-            <small>${localCsv.fileName || "Файл пока не выбран"}</small>
-          </label>
-          <label className="field">
-            <span>Запрос к ИИ</span>
-            <textarea className="editor-textarea editor-textarea--small" value=${state.ai.prompt} onInput=${(event) => updateAiLocal({ prompt: event.target.value })} placeholder="Например: найди спорные переводы и предложи финальные категории" disabled=${saving || working}></textarea>
-          </label>
-          <button type="button" className="button button--red ai-run" onClick=${runAnalysis} disabled=${saving || working || !localCsv.csvText}>
-            ${working ? html`<${ButtonSpinner} />` : null}
-            <span>${working ? "Анализ..." : "Отправить в ИИ"}</span>
-          </button>
-          ${localCsv.fileName ? html`<div className="ai-inline-file">Локально: ${localCsv.fileName}</div>` : null}
+      <section className="panel money-panel">
+        <div className="money-tabs">
+          ${tabs.map((item) => html`
+            <button
+              key=${item.id}
+              type="button"
+              className=${`money-tabs__item${activeTabId === item.id ? " is-active" : ""}`}
+              onClick=${() => onSelectTab(item.id)}
+              disabled=${saving}
+            >${item.title}</button>
+          `)}
+          ${creating
+            ? html`
+              <div className="money-tab-editor">
+                <input
+                  type="text"
+                  value=${draftTitle}
+                  onInput=${(event) => setDraftTitle(event.target.value)}
+                  placeholder="Название вкладки"
+                  disabled=${saving}
+                />
+                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
+                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
+              </div>
+            `
+            : html`<button type="button" className="money-tab-create" onClick=${startCreate} disabled=${saving}>+</button>`}
         </div>
-      </section>
-      <section className="panel ai-map-panel">
-        <div className="page-head">
-          <div>
-            <h2>Переводы категорий</h2>
-            <p>Колонка показывает итоговую категорию. Сверху операции, ниже расход.</p>
-          </div>
-          <div className="ai-column-create">
+
+        <div className="money-mini-head">
+          <div className="money-mini-head__plan">
             <input
+              className=${`money-mini-head__title${titleError ? " is-invalid" : ""}${titleShake ? " is-shake" : ""}`}
               type="text"
-              value=${newTargetName}
-              onInput=${(event) => setNewTargetName(event.target.value)}
-              placeholder="Создать категорию"
-              disabled=${saving || working || !localCsv.csvText}
+              value=${title}
+              onInput=${(event) => {
+                setTitle(event.target.value);
+                if (event.target.value.trim()) {
+                  setTitleError("");
+                }
+              }}
+              placeholder="Название плана"
+              disabled=${saving}
             />
-            <button type="button" className="button button--blue" onClick=${createTargetColumn} disabled=${saving || working || !newTargetName.trim()}>Добавить</button>
+            ${titleError ? html`<div className="field-error">${titleError}</div>` : null}
+            <div className="money-plan-total">Итого: ${formatMoney(total)}</div>
+          </div>
+          <div className="money-mini-head__actions">
+            ${isDirty ? html`
+              <button type="button" className="icon-button money-tab-editor__apply" onClick=${saveTab} disabled=${saving}>
+                ${saving ? html`<${ButtonSpinner} />` : "✓"}
+              </button>
+            ` : null}
+            <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => onDelete(tab.id)} disabled=${saving}>×</button>
           </div>
         </div>
-        <div className="ai-board">
-          ${boardColumns.length ? boardColumns.map((column) => html`
-            <section
-              key=${column.id}
-              className="ai-column"
-              onDragOver=${(event) => event.preventDefault()}
-              onDrop=${(event) => {
-                event.preventDefault();
-                const mappingId = event.dataTransfer.getData("text/plain");
-                if (mappingId) moveMappingToTarget(mappingId, column.title);
-              }}
-            >
-              <div className="ai-column__head">
-                <strong>${column.title}</strong>
-                <div className="ai-column__meta">
-                  <span>Операции: ${column.operationsCount}</span>
-                  <span>Расход: ${formatMoney(column.total)}</span>
+
+        <div className="money-table money-table--minimal">
+          ${groups.length ? groups.map((group) => html`
+            <section key=${group.id} className="money-group">
+              <div className="money-group__head">
+                <div className="money-group__title-wrap">
+                  ${editingGroups[group.id]
+                    ? html`
+                      <input
+                        className="money-group__title"
+                        type="text"
+                        value=${group.title}
+                        onInput=${(event) => updateGroup(group.id, { title: event.target.value })}
+                        placeholder="Название дела"
+                        disabled=${saving}
+                      />
+                    `
+                    : html`<div className="money-group__title-text">${group.title || "Без названия"}</div>`}
+                  <div className="money-group__total">${formatMoney(groupTotal(group))}</div>
+                </div>
+                <div className="money-group__actions">
+                  <button
+                    type="button"
+                    className=${`icon-button money-row__edit${editingGroups[group.id] ? " is-active" : ""}`}
+                    onClick=${() => toggleGroupEditing(group.id)}
+                    disabled=${saving}
+                  >✎</button>
+                  <button type="button" className="icon-button money-row__delete" onClick=${() => removeGroup(group.id)} disabled=${saving || groups.length <= 1}>×</button>
                 </div>
               </div>
-              <div className="ai-column__cards">
-                ${column.groups.length ? html`
-                  <div className="ai-group-list">
-                    ${column.groups.map((item) => html`
-                      <div
-                        key=${item.id}
-                        className="ai-group-row"
-                        draggable=${true}
-                        onDragStart=${(event) => event.dataTransfer.setData("text/plain", item.id)}
-                      >
-                        <div className="ai-group-row__meta">
-                          <strong>${item.source}</strong>
-                          <span>${item.count} операций · ${formatMoney(item.total)}</span>
-                        </div>
+
+              <div className="money-group__items">
+                ${group.items.length ? sortMoneySubitems(group.items).map((item) => {
+                  const isEditing = Boolean(editingItems[item.id]);
+                  const draft = itemDrafts[item.id] || item;
+                  const itemDirty = isSubitemDirty(item, draft);
+                  return isEditing && editingGroups[group.id] ? html`
+                    <div key=${item.id} className="money-row money-row--editing">
+                      <label className="money-cell">
+                        <span className="money-cell__label">Подпункт</span>
                         <input
                           type="text"
-                          value=${item.comment || ""}
-                          onInput=${(event) => setLocalCsv((current) => ({ ...current, mappings: current.mappings.map((row) => row.id === item.id ? { ...row, comment: event.target.value } : row) }))}
-                          placeholder="Комментарий"
-                          disabled=${saving || working}
+                          value=${draft.name}
+                          onInput=${(event) => updateDraftSubitem(item.id, { name: event.target.value })}
+                          placeholder="Например: ворота, бетон, крыша"
+                          disabled=${saving}
                         />
+                      </label>
+
+                      <label className="money-cell">
+                        <span className="money-cell__label">Стоимость</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value=${draft.cost}
+                          onInput=${(event) => updateDraftSubitem(item.id, { cost: event.target.value })}
+                          placeholder="0"
+                          disabled=${saving}
+                        />
+                      </label>
+
+                      <div className="money-row__side money-row__side--edit">
+                        ${draft.isNew ? null : html`
+                          <button
+                            type="button"
+                            className=${`money-status-toggle${draft.completed ? " is-return" : " is-done"}`}
+                            onClick=${() => updateDraftSubitem(item.id, { completed: !draft.completed })}
+                            disabled=${saving}
+                          >${draft.completed ? "Вернуть" : "Сделано"}</button>
+                        `}
+                        ${itemDirty ? html`
+                          <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => applyEditSubitem(group.id, item.id)} disabled=${saving}>✓</button>
+                        ` : null}
+                        <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelEditSubitem(item.id)} disabled=${saving}>×</button>
                       </div>
-                    `)}
-                  </div>
-                ` : null}
-                ${column.operations.length ? html`
-                  <div className="ai-operation-list">
-                    ${column.operations.map((item) => html`
-                      <div key=${item.id} className="ai-operation-row">
-                        <div className="ai-operation-row__main">
-                          <strong>${normalizeKey(column.title) === normalizeKey("Переводы") ? (item.description || "Перевод") : (item.description || item.category)}</strong>
-                          <span>
-                            ${normalizeKey(column.title) === normalizeKey("Переводы")
-                              ? `${buildCardLabel(item.cardNumber)} · ${item.bankLabel}`
-                              : `${item.date}${item.cardNumber ? ` · ${buildCardLabel(item.cardNumber)}` : ""}`}
-                          </span>
+                    </div>
+                  ` : html`
+                    <div key=${item.id} className=${`money-row money-row--compact${item.completed ? " is-done" : ""}`}>
+                      <div className="money-row__summary">
+                        <strong>${item.name || "Без названия"}</strong>
+                        ${item.completed ? html`<span className="money-row__badge">Сделано</span>` : null}
+                      </div>
+                      <div className="money-row__amount">${formatMoney(parseMoneyInput(item.cost))}</div>
+                      ${editingGroups[group.id] ? html`
+                        <div className="money-row__side">
+                          ${item.isNew ? null : html`
+                            <button
+                              type="button"
+                              className=${`money-status-toggle${item.completed ? " is-return" : " is-done"}`}
+                              onClick=${() => updateSubitem(group.id, item.id, {
+                                completed: !item.completed,
+                                updatedAt: nowISO(),
+                                updatedBy: actor,
+                              })}
+                              disabled=${saving}
+                            >${item.completed ? "Вернуть" : "Сделано"}</button>
+                          `}
+                          <button type="button" className="icon-button money-row__edit" onClick=${() => startEditSubitem(item)} disabled=${saving}>✎</button>
+                          <button type="button" className="icon-button money-row__delete" onClick=${() => removeSubitem(group.id, item.id)} disabled=${saving || group.items.length <= 1}>×</button>
                         </div>
-                        <div className="ai-operation-row__amount">${formatMoney(item.amount, item.currency)}</div>
-                      </div>
-                    `)}
-                  </div>
-                ` : html`<div className="empty-state empty-state--soft"><p>Сюда можно перетащить категории.</p></div>`}
+                      ` : html`<div></div>`}
+                    </div>
+                  `;
+                }) : null}
               </div>
+
+              ${editingGroups[group.id] ? html`
+                <div className="money-group__footer">
+                  <button type="button" className="button button--ghost" onClick=${() => addSubitem(group.id)} disabled=${saving}>Добавить подпункт</button>
+                </div>
+              ` : null}
             </section>
-          `) : html`<div className="empty-state empty-state--soft"><p>После загрузки CSV здесь появятся колонки категорий.</p></div>`}
+          `) : html`
+            <div className="empty-state empty-state--soft money-empty">
+              <p>Добавьте первое дело внутри плана.</p>
+            </div>
+          `}
         </div>
-      </section>
-      <section className="panel ai-result">
-        <div className="page-head">
-          <div>
-            <h2>Ответ ИИ</h2>
-            <p>${state.ai.lastRunAt ? `Последний запуск: ${formatTime(state.ai.lastRunAt)}` : "Ответ появится после анализа."}</p>
-          </div>
+
+        <div className="money-mini-footer">
+          <button type="button" className="button button--ghost" onClick=${addGroup} disabled=${saving}>Добавить дело</button>
         </div>
-        <pre>${state.ai.analysisResult || "Пока пусто."}</pre>
       </section>
     </main>
   `;

@@ -1,6 +1,10 @@
 const STATE_FILE_NAME = "budget-flow-planner-state.json";
 const STATE_FOLDER_ID = "1yMthxjbEwRjoLt8WmJmKx1AmpK2P9Y6e";
 const IMAGE_FOLDER_NAME = "Image";
+const AUTH_USERS = {
+  Lesha: "vandal2020",
+  Lera: "vandal2021",
+};
 
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || "health";
@@ -41,6 +45,11 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
+
+    if (body.action === "login") {
+      return jsonOutput_(login_(body.role || "", body.password || ""));
+    }
+
     if (!isAuthorized_(body.token || "")) {
       return jsonOutput_({ ok: false, message: "Unauthorized" });
     }
@@ -66,6 +75,24 @@ function doPost(e) {
       message: error.message || "Unexpected Apps Script error",
     });
   }
+}
+
+function login_(role, password) {
+  const expectedPassword = AUTH_USERS[role];
+  if (!expectedPassword || expectedPassword !== password) {
+    return {
+      ok: false,
+      message: "Invalid role or password",
+    };
+  }
+
+  return {
+    ok: true,
+    message: "Authorized",
+    payload: {
+      role: role,
+    },
+  };
 }
 
 function loadState_() {
@@ -131,13 +158,27 @@ function getImageBlob_(fileId) {
 }
 
 function buildImageUrl_(fileId) {
-  return "https://drive.google.com/thumbnail?id="
-    + encodeURIComponent(fileId)
-    + "&sz=w1600";
+  const scriptUrl = ScriptApp.getService().getUrl();
+  const scriptToken = PropertiesService.getScriptProperties().getProperty("SYNC_TOKEN") || "";
+  return scriptUrl
+    + "?action=getImage&fileId=" + encodeURIComponent(fileId)
+    + (scriptToken ? "&token=" + encodeURIComponent(scriptToken) : "");
 }
 
 function sanitizeFileName_(fileName) {
   return String(fileName).replace(/[^\w.\-]+/g, "_");
+}
+
+function getDefaultMoneyTab_() {
+  return {
+    id: "money-default",
+    title: "Планы (деньги)",
+    groups: [],
+    createdAt: "",
+    createdBy: "",
+    updatedAt: "",
+    updatedBy: "",
+  };
 }
 
 function getDefaultState_() {
@@ -145,11 +186,13 @@ function getDefaultState_() {
     settings: {
       theme: "light",
       lastSyncedAt: "",
+      lastUpdatedBy: "",
     },
     view: "planner",
     calendarMonth: "",
     plannerSelectedDate: "",
     dogsSelectedDate: "",
+    moneyActiveTabId: "",
     feedFilters: {
       search: "",
       mode: "active",
@@ -157,15 +200,7 @@ function getDefaultState_() {
     plannerEntries: [],
     dogsEntries: [],
     posts: [],
-    ai: {
-      provider: "deepseek",
-      model: "deepseek-chat",
-      prompt: "",
-      csvText: "",
-      analysisResult: "",
-      categoryMappings: [],
-      lastRunAt: "",
-    },
+    customTabs: [],
   };
 }
 
@@ -177,33 +212,128 @@ function mergeState_(payload) {
   const dogsEntries = Array.isArray(payload.dogsEntries)
     ? payload.dogsEntries
     : convertLegacyNote_(payload.dogs, "dogs");
+  const customTabs = Array.isArray(payload.customTabs)
+    ? payload.customTabs.map(function (tab) { return normalizeCustomTab_(tab); })
+    : [];
 
   return {
     settings: {
       theme: (payload.settings && payload.settings.theme) || defaults.settings.theme,
       lastSyncedAt: (payload.settings && payload.settings.lastSyncedAt) || defaults.settings.lastSyncedAt,
+      lastUpdatedBy: (payload.settings && payload.settings.lastUpdatedBy) || defaults.settings.lastUpdatedBy,
     },
     view: payload.view || defaults.view,
     calendarMonth: payload.calendarMonth || defaults.calendarMonth,
     plannerSelectedDate: payload.plannerSelectedDate || defaults.plannerSelectedDate,
     dogsSelectedDate: payload.dogsSelectedDate || defaults.dogsSelectedDate,
+    moneyActiveTabId: payload.moneyActiveTabId || (customTabs[0] && customTabs[0].id) || defaults.moneyActiveTabId,
     feedFilters: {
       search: (payload.feedFilters && payload.feedFilters.search) || "",
       mode: (payload.feedFilters && payload.feedFilters.mode)
-        || (payload.feedFilters && payload.feedFilters.showArchived ? "archived" : "active"),
+        || (payload.feedFilters && payload.feedFilters.showArchived ? "archived" : defaults.feedFilters.mode),
     },
-    plannerEntries: plannerEntries,
-    dogsEntries: dogsEntries,
-    posts: Array.isArray(payload.posts) ? payload.posts : [],
-    ai: {
-      provider: (payload.ai && payload.ai.provider) || defaults.ai.provider,
-      model: (payload.ai && payload.ai.model) || defaults.ai.model,
-      prompt: (payload.ai && payload.ai.prompt) || "",
-      csvText: (payload.ai && payload.ai.csvText) || "",
-      analysisResult: (payload.ai && payload.ai.analysisResult) || "",
-      categoryMappings: Array.isArray(payload.ai && payload.ai.categoryMappings) ? payload.ai.categoryMappings : [],
-      lastRunAt: (payload.ai && payload.ai.lastRunAt) || "",
-    },
+    plannerEntries: plannerEntries.map(function (entry) { return normalizeEntry_(entry, "planner"); }),
+    dogsEntries: dogsEntries.map(function (entry) { return normalizeEntry_(entry, "dogs"); }),
+    posts: Array.isArray(payload.posts)
+      ? payload.posts.map(function (post) { return normalizePost_(post); })
+      : [],
+    customTabs: customTabs,
+  };
+}
+
+function normalizeEntry_(entry, prefix) {
+  return {
+    id: entry.id || (prefix + "-" + Utilities.getUuid()),
+    date: entry.date || "",
+    text: entry.text || "",
+    repeatMonthly: Boolean(entry.repeatMonthly),
+    createdAt: entry.createdAt || entry.updatedAt || "",
+    createdBy: entry.createdBy || "",
+    updatedAt: entry.updatedAt || "",
+    updatedBy: entry.updatedBy || "",
+  };
+}
+
+function normalizePost_(post) {
+  return {
+    id: post.id || ("post-" + Utilities.getUuid()),
+    author: post.author || post.createdBy || "Lesha",
+    text: post.text || "",
+    images: Array.isArray(post.images) ? post.images : [],
+    pinned: Boolean(post.pinned),
+    archived: Boolean(post.archived),
+    createdAt: post.createdAt || "",
+    createdBy: post.createdBy || post.author || "",
+    updatedAt: post.updatedAt || post.createdAt || "",
+    updatedBy: post.updatedBy || post.createdBy || post.author || "",
+    startDate: post.startDate || "",
+    endDate: post.endDate || post.startDate || "",
+    comments: Array.isArray(post.comments)
+      ? post.comments.map(function (comment) { return normalizeComment_(comment); })
+      : [],
+  };
+}
+
+function normalizeComment_(comment) {
+  return {
+    id: comment.id || ("comment-" + Utilities.getUuid()),
+    author: comment.author || comment.createdBy || "Lesha",
+    text: comment.text || "",
+    createdAt: comment.createdAt || "",
+    createdBy: comment.createdBy || comment.author || "",
+    updatedAt: comment.updatedAt || comment.createdAt || "",
+    updatedBy: comment.updatedBy || comment.createdBy || comment.author || "",
+  };
+}
+
+function normalizeCustomTab_(tab) {
+  return {
+    id: tab.id || ("money-" + Utilities.getUuid()),
+    title: tab.title || "Планы (деньги)",
+    groups: Array.isArray(tab.groups)
+      ? tab.groups.map(function (group) { return normalizeMoneyGroup_(group); })
+      : (Array.isArray(tab.rows) && tab.rows.length
+        ? [{
+          id: "group-" + Utilities.getUuid(),
+          title: "Общее",
+          items: tab.rows.map(function (row) { return normalizeMoneyRow_(row); }),
+          createdAt: tab.createdAt || tab.updatedAt || "",
+          createdBy: tab.createdBy || "",
+          updatedAt: tab.updatedAt || "",
+          updatedBy: tab.updatedBy || "",
+        }]
+        : []),
+    createdAt: tab.createdAt || tab.updatedAt || "",
+    createdBy: tab.createdBy || "",
+    updatedAt: tab.updatedAt || "",
+    updatedBy: tab.updatedBy || "",
+  };
+}
+
+function normalizeMoneyGroup_(group) {
+  return {
+    id: group.id || ("group-" + Utilities.getUuid()),
+    title: group.title || group.name || "",
+    items: Array.isArray(group.items)
+      ? group.items.map(function (row) { return normalizeMoneyRow_(row); })
+      : [],
+    createdAt: group.createdAt || group.updatedAt || "",
+    createdBy: group.createdBy || "",
+    updatedAt: group.updatedAt || "",
+    updatedBy: group.updatedBy || "",
+  };
+}
+
+function normalizeMoneyRow_(row) {
+  return {
+    id: row.id || ("row-" + Utilities.getUuid()),
+    name: row.name || row.title || "",
+    cost: typeof row.cost !== "undefined" ? row.cost : "",
+    completed: Boolean(row.completed),
+    createdAt: row.createdAt || row.updatedAt || "",
+    createdBy: row.createdBy || "",
+    updatedAt: row.updatedAt || "",
+    updatedBy: row.updatedBy || "",
   };
 }
 
@@ -216,7 +346,10 @@ function convertLegacyNote_(legacyNote, prefix) {
     date: legacyNote.date || "",
     text: legacyNote.text || "",
     repeatMonthly: false,
+    createdAt: legacyNote.updatedAt || "",
+    createdBy: "",
     updatedAt: legacyNote.updatedAt || "",
+    updatedBy: "",
   }];
 }
 
