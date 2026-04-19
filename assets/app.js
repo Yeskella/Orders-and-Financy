@@ -1,13 +1,34 @@
-import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
+import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const html = htm.bind(React.createElement);
 
-const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHR1TZP8doS1WXuZlsQ5-d2DybpfAPBbYtzOblXp_VDMO2aIIOBiEofUacjLeF2TFFNg/exec";
+const DEFAULT_SUPABASE_URL = "https://echazrstskbnoxzxqoms.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_mKHl0igDFDZSndml-XbF4w_pvaO1Rlo";
+const DEFAULT_SUPABASE_BUCKET = "feed-images";
+const DEFAULT_SUPABASE_LEGACY_STATE_TABLE = "app_state";
+const DEFAULT_SUPABASE_META_TABLE = "app_meta";
+const DEFAULT_SUPABASE_META_ROW_ID = "main";
+const DEFAULT_SUPABASE_PLANNER_TABLE = "planner_entries";
+const DEFAULT_SUPABASE_DOGS_TABLE = "dogs_entries";
+const DEFAULT_SUPABASE_POSTS_TABLE = "posts";
+const DEFAULT_SUPABASE_COMMENTS_TABLE = "post_comments";
+const DEFAULT_SUPABASE_MONEY_TABS_TABLE = "money_tabs";
+const DEFAULT_SUPABASE_MONEY_GROUPS_TABLE = "money_groups";
+const DEFAULT_SUPABASE_MONEY_ITEMS_TABLE = "money_items";
 const THEME_STORAGE_KEY = "budget-planner-theme";
 const VIEW_STORAGE_KEY = "budget-planner-view";
 const SESSION_STORAGE_KEY = "budget-planner-session";
+const SUPABASE_URL_STORAGE_KEY = "budget-planner-supabase-url";
+const SUPABASE_ANON_KEY_STORAGE_KEY = "budget-planner-supabase-anon-key";
+const SUPABASE_BUCKET_STORAGE_KEY = "budget-planner-supabase-bucket";
+const DATA_SLICE_META = "meta";
+const DATA_SLICE_PLANNER = "planner";
+const DATA_SLICE_DOGS = "dogs";
+const DATA_SLICE_POSTS = "posts";
+const DATA_SLICE_MONEY = "money";
 
 const FIXED_NAV_ITEMS = [
   { id: "planner", label: "Планировщик трат" },
@@ -34,6 +55,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 const nowISO = () => new Date().toISOString();
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const sanitizeFileName = (value) => String(value || "file").replace(/[^\w.\-]+/g, "_");
 
 const getDefaultMoneySubitem = (actor = "") => {
   const timestamp = nowISO();
@@ -108,6 +130,44 @@ const getStoredSession = () => {
 
 const setStoredSession = (session) => window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 const clearStoredSession = () => window.localStorage.removeItem(SESSION_STORAGE_KEY);
+
+const getStoredSupabaseConfig = () => ({
+  url: window.localStorage.getItem(SUPABASE_URL_STORAGE_KEY) || DEFAULT_SUPABASE_URL,
+  anonKey: window.localStorage.getItem(SUPABASE_ANON_KEY_STORAGE_KEY) || DEFAULT_SUPABASE_ANON_KEY,
+  bucket: window.localStorage.getItem(SUPABASE_BUCKET_STORAGE_KEY) || DEFAULT_SUPABASE_BUCKET,
+});
+
+let supabaseClientCache = null;
+let supabaseClientKey = "";
+
+const getSupabaseClient = () => {
+  const config = getStoredSupabaseConfig();
+  if (!config.url || !config.anonKey || !config.bucket) {
+    return null;
+  }
+  const cacheKey = `${config.url}|${config.anonKey}`;
+  if (!supabaseClientCache || supabaseClientKey !== cacheKey) {
+    supabaseClientCache = createClient(config.url, config.anonKey);
+    supabaseClientKey = cacheKey;
+  }
+  return {
+    client: supabaseClientCache,
+    bucket: config.bucket,
+  };
+};
+
+if (typeof window !== "undefined") {
+  window.setBudgetSupabaseConfig = ({ url = "", anonKey = "", bucket = DEFAULT_SUPABASE_BUCKET } = {}) => {
+    window.localStorage.setItem(SUPABASE_URL_STORAGE_KEY, url);
+    window.localStorage.setItem(SUPABASE_ANON_KEY_STORAGE_KEY, anonKey);
+    window.localStorage.setItem(SUPABASE_BUCKET_STORAGE_KEY, bucket || DEFAULT_SUPABASE_BUCKET);
+  };
+  window.clearBudgetSupabaseConfig = () => {
+    window.localStorage.removeItem(SUPABASE_URL_STORAGE_KEY);
+    window.localStorage.removeItem(SUPABASE_ANON_KEY_STORAGE_KEY);
+    window.localStorage.removeItem(SUPABASE_BUCKET_STORAGE_KEY);
+  };
+}
 
 const toHash = (view) => (
   isMoneyView(view)
@@ -332,12 +392,6 @@ const normalizeState = (payload = {}) => {
   };
 };
 
-const readBase64 = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
-  reader.onerror = () => reject(new Error("Не удалось прочитать изображение"));
-  reader.readAsDataURL(file);
-});
 
 const resizeImageFile = (file, maxSide = 1280, quality = 0.84) => new Promise((resolve, reject) => {
   if (!file.type.startsWith("image/")) {
@@ -375,93 +429,740 @@ const resizeImageFile = (file, maxSide = 1280, quality = 0.84) => new Promise((r
 
 const imageSrc = (image) => {
   if (!image) return "";
-  if (image.imageUrl) return image.imageUrl;
-  if (image.fileId) return `${DEFAULT_SCRIPT_URL}?action=getImage&fileId=${encodeURIComponent(image.fileId)}`;
+  if (image.publicUrl) return image.publicUrl;
   return "";
 };
 
-const fetchState = async () => {
-  const response = await fetch(`${DEFAULT_SCRIPT_URL}?action=getState`, { method: "GET" });
-  const data = await response.json();
-  if (!response.ok || !data.ok) {
-    throw new Error(data.message || "Не удалось загрузить данные");
+const getSupabaseStateStore = () => {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase is not configured");
   }
-  return normalizeState(data.payload);
+  return {
+    ...supabase,
+    tables: {
+      legacy: DEFAULT_SUPABASE_LEGACY_STATE_TABLE,
+      meta: DEFAULT_SUPABASE_META_TABLE,
+      planner: DEFAULT_SUPABASE_PLANNER_TABLE,
+      dogs: DEFAULT_SUPABASE_DOGS_TABLE,
+      posts: DEFAULT_SUPABASE_POSTS_TABLE,
+      comments: DEFAULT_SUPABASE_COMMENTS_TABLE,
+      moneyTabs: DEFAULT_SUPABASE_MONEY_TABS_TABLE,
+      moneyGroups: DEFAULT_SUPABASE_MONEY_GROUPS_TABLE,
+      moneyItems: DEFAULT_SUPABASE_MONEY_ITEMS_TABLE,
+    },
+    metaRowId: DEFAULT_SUPABASE_META_ROW_ID,
+  };
 };
 
-const saveState = async (payload) => {
-  const response = await fetch(DEFAULT_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
-      action: "saveState",
-      payload,
-    }),
-  });
-  const data = await response.json();
-  if (!response.ok || !data.ok) {
-    throw new Error(data.message || "Не удалось сохранить данные");
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
+const isMissingSupabaseTableError = (error) => {
+  const message = String(error?.message || "");
+  return error?.code === "42P01"
+    || /does not exist/i.test(message)
+    || /Could not find the table/i.test(message);
+};
+
+const hasStoredStatePayload = (payload) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
   }
-  return data;
+  return Object.keys(payload).length > 0;
+};
+
+const fetchLegacySupabaseJsonState = async (store) => {
+  const { data, error } = await store.client
+    .from(store.tables.legacy)
+    .select("payload")
+    .eq("id", store.metaRowId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingSupabaseTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  return hasStoredStatePayload(data?.payload) ? normalizeState(data.payload) : null;
+};
+
+const sortByPosition = (left, right) => {
+  const leftPosition = Number.isFinite(left?.position) ? left.position : 0;
+  const rightPosition = Number.isFinite(right?.position) ? right.position : 0;
+  return leftPosition - rightPosition;
+};
+
+const getRequiredSlicesForView = (view) => {
+  switch (view) {
+    case "planner":
+      return [DATA_SLICE_META, DATA_SLICE_PLANNER];
+    case "dogs":
+      return [DATA_SLICE_META, DATA_SLICE_DOGS];
+    case "plans":
+      return [DATA_SLICE_META, DATA_SLICE_POSTS];
+    case "money":
+      return [DATA_SLICE_META, DATA_SLICE_MONEY];
+    case "calendar":
+      return [DATA_SLICE_META, DATA_SLICE_PLANNER, DATA_SLICE_DOGS, DATA_SLICE_POSTS];
+    default:
+      return [DATA_SLICE_META];
+  }
+};
+
+const getMetaPatchFromRow = (meta) => ({
+  settings: meta?.settings || DEFAULT_STATE.settings,
+  view: meta?.view || DEFAULT_STATE.view,
+  calendarMonth: meta?.calendar_month || "",
+  plannerSelectedDate: meta?.planner_selected_date || "",
+  dogsSelectedDate: meta?.dogs_selected_date || "",
+  moneyActiveTabId: meta?.money_active_tab_id || "",
+  feedFilters: meta?.feed_filters || DEFAULT_STATE.feedFilters,
+});
+
+const hasMeaningfulMeta = (meta) => Boolean(
+  meta
+  && (
+    hasStoredStatePayload(meta.settings)
+    || meta.view !== DEFAULT_STATE.view
+    || meta.calendar_month
+    || meta.planner_selected_date
+    || meta.dogs_selected_date
+    || meta.money_active_tab_id
+    || (meta.feed_filters && (
+      meta.feed_filters.search
+      || meta.feed_filters.mode !== DEFAULT_STATE.feedFilters.mode
+    ))
+    || meta.settings?.lastSyncedAt
+    || meta.settings?.lastUpdatedBy
+  )
+);
+
+const mergeStatePatch = (current, patch = {}) => normalizeState({
+  settings: hasOwn(patch, "settings") ? { ...current.settings, ...patch.settings } : current.settings,
+  view: hasOwn(patch, "view") ? patch.view : current.view,
+  calendarMonth: hasOwn(patch, "calendarMonth") ? patch.calendarMonth : current.calendarMonth,
+  plannerSelectedDate: hasOwn(patch, "plannerSelectedDate") ? patch.plannerSelectedDate : current.plannerSelectedDate,
+  dogsSelectedDate: hasOwn(patch, "dogsSelectedDate") ? patch.dogsSelectedDate : current.dogsSelectedDate,
+  moneyActiveTabId: hasOwn(patch, "moneyActiveTabId") ? patch.moneyActiveTabId : current.moneyActiveTabId,
+  feedFilters: hasOwn(patch, "feedFilters") ? patch.feedFilters : current.feedFilters,
+  plannerEntries: hasOwn(patch, "plannerEntries") ? patch.plannerEntries : current.plannerEntries,
+  dogsEntries: hasOwn(patch, "dogsEntries") ? patch.dogsEntries : current.dogsEntries,
+  posts: hasOwn(patch, "posts") ? patch.posts : current.posts,
+  customTabs: hasOwn(patch, "customTabs") ? patch.customTabs : current.customTabs,
+});
+
+const assertSupabaseResult = (result, missingMessage = "Supabase schema is not ready") => {
+  if (!result?.error) {
+    return result.data;
+  }
+  if (isMissingSupabaseTableError(result.error)) {
+    throw new Error(missingMessage);
+  }
+  throw new Error(result.error.message || "Supabase request failed");
+};
+
+const fetchMetaSlice = async (store) => {
+  const result = await store.client
+    .from(store.tables.meta)
+    .select("*")
+    .eq("id", store.metaRowId)
+    .maybeSingle();
+
+  return getMetaPatchFromRow(assertSupabaseResult(result));
+};
+
+const fetchEntriesSlice = async (store, table, key) => {
+  const result = await store.client
+    .from(table)
+    .select("*")
+    .order("updated_at", { ascending: false });
+
+  const rows = assertSupabaseResult(result);
+  return {
+    [key]: (rows || []).map((entry) => ({
+      id: entry.id,
+      date: entry.date || "",
+      text: entry.text || "",
+      repeatMonthly: Boolean(entry.repeat_monthly),
+      createdAt: entry.created_at || "",
+      createdBy: entry.created_by || "",
+      updatedAt: entry.updated_at || "",
+      updatedBy: entry.updated_by || "",
+    })),
+  };
+};
+
+const fetchPostsSlice = async (store) => {
+  const [postsResult, commentsResult] = await Promise.all([
+    store.client.from(store.tables.posts).select("*").order("created_at", { ascending: false }),
+    store.client.from(store.tables.comments).select("*").order("created_at", { ascending: true }),
+  ]);
+
+  const postsRows = assertSupabaseResult(postsResult);
+  const commentsRows = assertSupabaseResult(commentsResult);
+  const commentsByPostId = new Map();
+
+  (commentsRows || []).forEach((comment) => {
+    const comments = commentsByPostId.get(comment.post_id) || [];
+    comments.push({
+      id: comment.id,
+      author: comment.author || comment.created_by || "Lesha",
+      text: comment.text || "",
+      createdAt: comment.created_at || "",
+      createdBy: comment.created_by || comment.author || "",
+      updatedAt: comment.updated_at || comment.created_at || "",
+      updatedBy: comment.updated_by || comment.created_by || comment.author || "",
+    });
+    commentsByPostId.set(comment.post_id, comments);
+  });
+
+  return {
+    posts: (postsRows || []).map((post) => ({
+      id: post.id,
+      author: post.author || post.created_by || "Lesha",
+      text: post.text || "",
+      images: Array.isArray(post.images) ? post.images : [],
+      pinned: Boolean(post.pinned),
+      archived: Boolean(post.archived),
+      createdAt: post.created_at || "",
+      createdBy: post.created_by || post.author || "",
+      updatedAt: post.updated_at || post.created_at || "",
+      updatedBy: post.updated_by || post.created_by || post.author || "",
+      startDate: post.start_date || "",
+      endDate: post.end_date || post.start_date || "",
+      comments: commentsByPostId.get(post.id) || [],
+    })),
+  };
+};
+
+const fetchMoneySlice = async (store) => {
+  const [tabsResult, groupsResult, itemsResult] = await Promise.all([
+    store.client.from(store.tables.moneyTabs).select("*").order("position", { ascending: true }),
+    store.client.from(store.tables.moneyGroups).select("*").order("position", { ascending: true }),
+    store.client.from(store.tables.moneyItems).select("*").order("position", { ascending: true }),
+  ]);
+
+  const tabsRows = assertSupabaseResult(tabsResult);
+  const groupsRows = assertSupabaseResult(groupsResult);
+  const itemsRows = assertSupabaseResult(itemsResult);
+  const itemsByGroupId = new Map();
+
+  (itemsRows || []).forEach((item) => {
+    const items = itemsByGroupId.get(item.group_id) || [];
+    items.push({
+      id: item.id,
+      name: item.name || "",
+      cost: item.cost ?? "",
+      completed: Boolean(item.completed),
+      isNew: Boolean(item.is_new),
+      createdAt: item.created_at || "",
+      createdBy: item.created_by || "",
+      updatedAt: item.updated_at || "",
+      updatedBy: item.updated_by || "",
+      position: item.position || 0,
+    });
+    itemsByGroupId.set(item.group_id, items);
+  });
+
+  const groupsByTabId = new Map();
+  (groupsRows || []).forEach((group) => {
+    const groups = groupsByTabId.get(group.tab_id) || [];
+    groups.push({
+      id: group.id,
+      title: group.title || "",
+      items: (itemsByGroupId.get(group.id) || []).sort(sortByPosition),
+      createdAt: group.created_at || "",
+      createdBy: group.created_by || "",
+      updatedAt: group.updated_at || "",
+      updatedBy: group.updated_by || "",
+      position: group.position || 0,
+    });
+    groupsByTabId.set(group.tab_id, groups);
+  });
+
+  return {
+    customTabs: (tabsRows || []).map((tab) => ({
+      id: tab.id,
+      title: tab.title || "",
+      groups: (groupsByTabId.get(tab.id) || []).sort(sortByPosition),
+      createdAt: tab.created_at || "",
+      createdBy: tab.created_by || "",
+      updatedAt: tab.updated_at || "",
+      updatedBy: tab.updated_by || "",
+      position: tab.position || 0,
+    })),
+  };
+};
+
+const fetchStateSlices = async (slices) => {
+  const store = getSupabaseStateStore();
+  const uniqueSlices = [...new Set(slices)];
+  const patches = await Promise.all(uniqueSlices.map((slice) => {
+    switch (slice) {
+      case DATA_SLICE_META:
+        return fetchMetaSlice(store);
+      case DATA_SLICE_PLANNER:
+        return fetchEntriesSlice(store, store.tables.planner, "plannerEntries");
+      case DATA_SLICE_DOGS:
+        return fetchEntriesSlice(store, store.tables.dogs, "dogsEntries");
+      case DATA_SLICE_POSTS:
+        return fetchPostsSlice(store);
+      case DATA_SLICE_MONEY:
+        return fetchMoneySlice(store);
+      default:
+        return {};
+    }
+  }));
+
+  return patches.reduce((accumulator, patch) => ({ ...accumulator, ...patch }), {});
+};
+
+const hasRelationalData = async (store) => {
+  const [metaResult, plannerResult, dogsResult, postsResult, tabsResult] = await Promise.all([
+    store.client.from(store.tables.meta).select("*").eq("id", store.metaRowId).maybeSingle(),
+    store.client.from(store.tables.planner).select("id", { count: "exact", head: true }),
+    store.client.from(store.tables.dogs).select("id", { count: "exact", head: true }),
+    store.client.from(store.tables.posts).select("id", { count: "exact", head: true }),
+    store.client.from(store.tables.moneyTabs).select("id", { count: "exact", head: true }),
+  ]);
+
+  const results = [metaResult, plannerResult, dogsResult, postsResult, tabsResult];
+  const missingResult = results.find((result) => result.error && isMissingSupabaseTableError(result.error));
+  if (missingResult) {
+    throw new Error("Supabase schema is not ready");
+  }
+
+  const failedResult = results.find((result) => result.error);
+  if (failedResult) {
+    throw new Error(failedResult.error.message || "Supabase request failed");
+  }
+
+  return hasMeaningfulMeta(metaResult.data)
+    || Number(plannerResult.count || 0) > 0
+    || Number(dogsResult.count || 0) > 0
+    || Number(postsResult.count || 0) > 0
+    || Number(tabsResult.count || 0) > 0;
+};
+
+const upsertRows = async (client, table, rows) => {
+  if (!rows.length) {
+    return;
+  }
+  const { error } = await client.from(table).upsert(rows, { onConflict: "id" });
+  if (error) {
+    throw error;
+  }
+};
+
+const deleteMissingRows = async (client, table, activeIds) => {
+  const { data, error } = await client.from(table).select("id");
+  if (error) {
+    throw error;
+  }
+  const activeIdSet = new Set(activeIds);
+  const missingIds = (data || []).map((row) => row.id).filter((id) => !activeIdSet.has(id));
+  if (!missingIds.length) {
+    return;
+  }
+  const { error: deleteError } = await client.from(table).delete().in("id", missingIds);
+  if (deleteError) {
+    throw deleteError;
+  }
+};
+
+const saveFullState = async (payload, providedStore = null) => {
+  const state = normalizeState(payload);
+  const store = providedStore || getSupabaseStateStore();
+  const client = store.client;
+
+  const metaRow = {
+    id: store.metaRowId,
+    settings: state.settings,
+    view: state.view,
+    calendar_month: state.calendarMonth,
+    planner_selected_date: state.plannerSelectedDate,
+    dogs_selected_date: state.dogsSelectedDate,
+    money_active_tab_id: state.moneyActiveTabId,
+    feed_filters: state.feedFilters,
+    updated_at: nowISO(),
+  };
+
+  const plannerRows = state.plannerEntries.map((entry) => ({
+    id: entry.id,
+    date: entry.date || "",
+    text: entry.text || "",
+    repeat_monthly: Boolean(entry.repeatMonthly),
+    created_at: entry.createdAt || "",
+    created_by: entry.createdBy || "",
+    updated_at: entry.updatedAt || "",
+    updated_by: entry.updatedBy || "",
+  }));
+
+  const dogsRows = state.dogsEntries.map((entry) => ({
+    id: entry.id,
+    date: entry.date || "",
+    text: entry.text || "",
+    repeat_monthly: Boolean(entry.repeatMonthly),
+    created_at: entry.createdAt || "",
+    created_by: entry.createdBy || "",
+    updated_at: entry.updatedAt || "",
+    updated_by: entry.updatedBy || "",
+  }));
+
+  const postRows = state.posts.map((post) => ({
+    id: post.id,
+    author: post.author || "",
+    text: post.text || "",
+    images: Array.isArray(post.images) ? post.images : [],
+    pinned: Boolean(post.pinned),
+    archived: Boolean(post.archived),
+    created_at: post.createdAt || "",
+    created_by: post.createdBy || "",
+    updated_at: post.updatedAt || "",
+    updated_by: post.updatedBy || "",
+    start_date: post.startDate || "",
+    end_date: post.endDate || "",
+  }));
+
+  const commentRows = state.posts.flatMap((post) => (post.comments || []).map((comment) => ({
+    id: comment.id,
+    post_id: post.id,
+    author: comment.author || "",
+    text: comment.text || "",
+    created_at: comment.createdAt || "",
+    created_by: comment.createdBy || "",
+    updated_at: comment.updatedAt || "",
+    updated_by: comment.updatedBy || "",
+  })));
+
+  const tabRows = state.customTabs.map((tab, index) => ({
+    id: tab.id,
+    title: tab.title || "",
+    position: index,
+    created_at: tab.createdAt || "",
+    created_by: tab.createdBy || "",
+    updated_at: tab.updatedAt || "",
+    updated_by: tab.updatedBy || "",
+  }));
+
+  const groupRows = state.customTabs.flatMap((tab) => (tab.groups || []).map((group, index) => ({
+    id: group.id,
+    tab_id: tab.id,
+    title: group.title || "",
+    position: index,
+    created_at: group.createdAt || "",
+    created_by: group.createdBy || "",
+    updated_at: group.updatedAt || "",
+    updated_by: group.updatedBy || "",
+  })));
+
+  const itemRows = state.customTabs.flatMap((tab) => (tab.groups || []).flatMap((group) => (group.items || []).map((item, index) => ({
+    id: item.id,
+    group_id: group.id,
+    name: item.name || "",
+    cost: item.cost ?? "",
+    completed: Boolean(item.completed),
+    is_new: Boolean(item.isNew),
+    position: index,
+    created_at: item.createdAt || "",
+    created_by: item.createdBy || "",
+    updated_at: item.updatedAt || "",
+    updated_by: item.updatedBy || "",
+  }))));
+
+  const { error: metaError } = await client.from(store.tables.meta).upsert(metaRow, { onConflict: "id" });
+  if (metaError) {
+    if (isMissingSupabaseTableError(metaError)) {
+      throw new Error("? Supabase ?? ??????? ????? ????? ?????? ?????????");
+    }
+    throw new Error(metaError.message || "?? ??????? ????????? ?????? ? Supabase");
+  }
+
+  try {
+    await upsertRows(client, store.tables.planner, plannerRows);
+    await upsertRows(client, store.tables.dogs, dogsRows);
+    await upsertRows(client, store.tables.posts, postRows);
+    await upsertRows(client, store.tables.comments, commentRows);
+    await upsertRows(client, store.tables.moneyTabs, tabRows);
+    await upsertRows(client, store.tables.moneyGroups, groupRows);
+    await upsertRows(client, store.tables.moneyItems, itemRows);
+
+    await deleteMissingRows(client, store.tables.comments, commentRows.map((row) => row.id));
+    await deleteMissingRows(client, store.tables.posts, postRows.map((row) => row.id));
+    await deleteMissingRows(client, store.tables.planner, plannerRows.map((row) => row.id));
+    await deleteMissingRows(client, store.tables.dogs, dogsRows.map((row) => row.id));
+    await deleteMissingRows(client, store.tables.moneyItems, itemRows.map((row) => row.id));
+    await deleteMissingRows(client, store.tables.moneyGroups, groupRows.map((row) => row.id));
+    await deleteMissingRows(client, store.tables.moneyTabs, tabRows.map((row) => row.id));
+  } catch (error) {
+    if (isMissingSupabaseTableError(error)) {
+      throw new Error("? Supabase ?? ??????? ????? ????? ?????? ?????????");
+    }
+    throw new Error(error.message || "?? ??????? ????????? ?????? ? Supabase");
+  }
+
+  return { ok: true };
+};
+
+const ensureSupabaseStateReady = async () => {
+  const store = getSupabaseStateStore();
+  if (await hasRelationalData(store)) {
+    return;
+  }
+
+  const legacySupabaseState = await fetchLegacySupabaseJsonState(store);
+  if (legacySupabaseState) {
+    await saveFullState({
+      ...legacySupabaseState,
+      settings: {
+        ...legacySupabaseState.settings,
+        theme: DEFAULT_STATE.settings.theme,
+      },
+    }, store);
+    return;
+  }
+
+  await saveFullState(normalizeState(DEFAULT_STATE), store);
+};
+
+const serializeMetaState = (state) => JSON.stringify({
+  settings: {
+    ...state.settings,
+    theme: DEFAULT_STATE.settings.theme,
+  },
+  view: state.view,
+  calendarMonth: state.calendarMonth,
+  plannerSelectedDate: state.plannerSelectedDate,
+  dogsSelectedDate: state.dogsSelectedDate,
+  moneyActiveTabId: state.moneyActiveTabId,
+  feedFilters: state.feedFilters,
+});
+
+const saveMetaState = async (store, state) => {
+  const metaRow = {
+    id: store.metaRowId,
+    settings: {
+      ...state.settings,
+      theme: DEFAULT_STATE.settings.theme,
+    },
+    view: state.view,
+    calendar_month: state.calendarMonth,
+    planner_selected_date: state.plannerSelectedDate,
+    dogs_selected_date: state.dogsSelectedDate,
+    money_active_tab_id: state.moneyActiveTabId,
+    feed_filters: state.feedFilters,
+    updated_at: nowISO(),
+  };
+
+  const { error } = await store.client.from(store.tables.meta).upsert(metaRow, { onConflict: "id" });
+  if (error) {
+    if (isMissingSupabaseTableError(error)) {
+      throw new Error("Supabase schema is not ready");
+    }
+    throw new Error(error.message || "Supabase request failed");
+  }
+};
+
+const saveEntriesSlice = async (store, table, entries) => {
+  const rows = entries.map((entry) => ({
+    id: entry.id,
+    date: entry.date || "",
+    text: entry.text || "",
+    repeat_monthly: Boolean(entry.repeatMonthly),
+    created_at: entry.createdAt || "",
+    created_by: entry.createdBy || "",
+    updated_at: entry.updatedAt || "",
+    updated_by: entry.updatedBy || "",
+  }));
+
+  await upsertRows(store.client, table, rows);
+  await deleteMissingRows(store.client, table, rows.map((row) => row.id));
+};
+
+const savePostsSlice = async (store, posts) => {
+  const postRows = posts.map((post) => ({
+    id: post.id,
+    author: post.author || "",
+    text: post.text || "",
+    images: Array.isArray(post.images) ? post.images : [],
+    pinned: Boolean(post.pinned),
+    archived: Boolean(post.archived),
+    created_at: post.createdAt || "",
+    created_by: post.createdBy || "",
+    updated_at: post.updatedAt || "",
+    updated_by: post.updatedBy || "",
+    start_date: post.startDate || "",
+    end_date: post.endDate || "",
+  }));
+
+  const commentRows = posts.flatMap((post) => (post.comments || []).map((comment) => ({
+    id: comment.id,
+    post_id: post.id,
+    author: comment.author || "",
+    text: comment.text || "",
+    created_at: comment.createdAt || "",
+    created_by: comment.createdBy || "",
+    updated_at: comment.updatedAt || "",
+    updated_by: comment.updatedBy || "",
+  })));
+
+  await upsertRows(store.client, store.tables.posts, postRows);
+  await upsertRows(store.client, store.tables.comments, commentRows);
+  await deleteMissingRows(store.client, store.tables.comments, commentRows.map((row) => row.id));
+  await deleteMissingRows(store.client, store.tables.posts, postRows.map((row) => row.id));
+};
+
+const saveMoneySlice = async (store, customTabs) => {
+  const tabRows = customTabs.map((tab, index) => ({
+    id: tab.id,
+    title: tab.title || "",
+    position: index,
+    created_at: tab.createdAt || "",
+    created_by: tab.createdBy || "",
+    updated_at: tab.updatedAt || "",
+    updated_by: tab.updatedBy || "",
+  }));
+
+  const groupRows = customTabs.flatMap((tab) => (tab.groups || []).map((group, index) => ({
+    id: group.id,
+    tab_id: tab.id,
+    title: group.title || "",
+    position: index,
+    created_at: group.createdAt || "",
+    created_by: group.createdBy || "",
+    updated_at: group.updatedAt || "",
+    updated_by: group.updatedBy || "",
+  })));
+
+  const itemRows = customTabs.flatMap((tab) => (tab.groups || []).flatMap((group) => (group.items || []).map((item, index) => ({
+    id: item.id,
+    group_id: group.id,
+    name: item.name || "",
+    cost: item.cost ?? "",
+    completed: Boolean(item.completed),
+    is_new: Boolean(item.isNew),
+    position: index,
+    created_at: item.createdAt || "",
+    created_by: item.createdBy || "",
+    updated_at: item.updatedAt || "",
+    updated_by: item.updatedBy || "",
+  }))));
+
+  await upsertRows(store.client, store.tables.moneyTabs, tabRows);
+  await upsertRows(store.client, store.tables.moneyGroups, groupRows);
+  await upsertRows(store.client, store.tables.moneyItems, itemRows);
+  await deleteMissingRows(store.client, store.tables.moneyItems, itemRows.map((row) => row.id));
+  await deleteMissingRows(store.client, store.tables.moneyGroups, groupRows.map((row) => row.id));
+  await deleteMissingRows(store.client, store.tables.moneyTabs, tabRows.map((row) => row.id));
+};
+
+const saveStateSlices = async (previousState, nextState) => {
+  const store = getSupabaseStateStore();
+  const tasks = [];
+
+  if (serializeMetaState(previousState) !== serializeMetaState(nextState)) {
+    tasks.push(saveMetaState(store, nextState));
+  }
+
+  if (JSON.stringify(previousState.plannerEntries) !== JSON.stringify(nextState.plannerEntries)) {
+    tasks.push(saveEntriesSlice(store, store.tables.planner, nextState.plannerEntries));
+  }
+
+  if (JSON.stringify(previousState.dogsEntries) !== JSON.stringify(nextState.dogsEntries)) {
+    tasks.push(saveEntriesSlice(store, store.tables.dogs, nextState.dogsEntries));
+  }
+
+  if (JSON.stringify(previousState.posts) !== JSON.stringify(nextState.posts)) {
+    tasks.push(savePostsSlice(store, nextState.posts));
+  }
+
+  if (JSON.stringify(previousState.customTabs) !== JSON.stringify(nextState.customTabs)) {
+    tasks.push(saveMoneySlice(store, nextState.customTabs));
+  }
+
+  try {
+    await Promise.all(tasks);
+  } catch (error) {
+    if (isMissingSupabaseTableError(error)) {
+      throw new Error("Supabase schema is not ready");
+    }
+    throw new Error(error.message || "Supabase request failed");
+  }
+
+  return { ok: true };
 };
 
 const loginFallback = (role, password) => {
   if (LOCAL_USERS[role] === password) {
     return { role };
   }
-  throw new Error("Неверная роль или пароль");
+  throw new Error("Wrong role or password");
 };
 
-const loginRemote = async (role, password) => {
-  try {
-    const response = await fetch(DEFAULT_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "login",
-        role,
-        password,
-      }),
-    });
-    const data = await response.json();
-    if (response.ok && data.ok) {
-      return data.payload || { role };
-    }
-    if (data.message === "Unknown action") {
-      return loginFallback(role, password);
-    }
-    throw new Error(data.message || "Не удалось авторизоваться");
-  } catch (error) {
-    if (LOCAL_USERS[role] === password) {
-      return { role, fallback: true };
-    }
-    throw error;
-  }
-};
+const loginRemote = async (role, password) => loginFallback(role, password);
 
 const uploadImages = async (files) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error("Supabase Storage не настроен");
+  }
+
   const uploaded = [];
   for (const file of files) {
     const prepared = await resizeImageFile(file);
-    const response = await fetch(DEFAULT_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "uploadImage",
-        imageBase64: await readBase64(prepared),
-        mimeType: prepared.type || "application/octet-stream",
-        fileName: prepared.name,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      throw new Error(data.message || "Не удалось загрузить изображение");
+    const filePath = `posts/${uid("image")}-${sanitizeFileName(prepared.name)}`;
+    const { error: uploadError } = await supabase.client
+      .storage
+      .from(supabase.bucket)
+      .upload(filePath, prepared, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: prepared.type || "application/octet-stream",
+      });
+
+    if (uploadError) {
+      throw new Error(uploadError.message || "Не удалось загрузить изображение в Supabase");
     }
-    uploaded.push(data.payload);
+
+    const { data } = supabase.client
+      .storage
+      .from(supabase.bucket)
+      .getPublicUrl(filePath);
+
+    uploaded.push({
+      type: "supabase",
+      path: filePath,
+      fileName: prepared.name,
+      mimeType: prepared.type || "application/octet-stream",
+      publicUrl: data.publicUrl,
+    });
   }
   return uploaded;
 };
+const deleteImages = async (images) => {
+  const list = Array.isArray(images) ? images : [];
+  if (!list.length) {
+    return;
+  }
 
+  const supabase = getSupabaseClient();
+  const supabasePaths = list
+    .filter((image) => image?.path)
+    .map((image) => image.path);
+
+  if (supabase && supabasePaths.length) {
+    const { error } = await supabase.client
+      .storage
+      .from(supabase.bucket)
+      .remove(supabasePaths);
+
+    if (error) {
+      throw new Error(error.message || "Не удалось удалить изображения из Supabase");
+    }
+  }
+};
 const dateMatchesEntry = (entry, date) => {
   if (!entry?.date || !date) return false;
   if (entry.repeatMonthly) {
@@ -554,10 +1255,14 @@ function App() {
   }));
   const [session, setSession] = useState(() => getStoredSession());
   const [loading, setLoading] = useState(true);
+  const [loadedSlices, setLoadedSlices] = useState({});
+  const [sliceLoading, setSliceLoading] = useState(false);
+  const [viewRefreshToken, setViewRefreshToken] = useState(0);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [authSaving, setAuthSaving] = useState(false);
+  const loadedSlicesRef = useRef({});
 
   useEffect(() => {
     document.title = "Планировщик";
@@ -566,6 +1271,10 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme || "light";
   }, [state.settings.theme]);
+
+  useEffect(() => {
+    loadedSlicesRef.current = loadedSlices;
+  }, [loadedSlices]);
 
   useEffect(() => {
     const currentView = routeToView(window.location.hash);
@@ -586,17 +1295,30 @@ function App() {
 
   useEffect(() => {
     let alive = true;
-    fetchState()
-      .then((payload) => {
+    const initialView = routeToView(window.location.hash);
+    const initialSlices = [...new Set(getRequiredSlicesForView(initialView))];
+
+    ensureSupabaseStateReady()
+      .then(() => fetchStateSlices(initialSlices))
+      .then((patch) => {
         if (!alive) return;
-        const view = validateView(routeToView(window.location.hash), payload.customTabs);
+        const merged = mergeStatePatch(normalizeState({
+          ...clone(DEFAULT_STATE),
+          settings: {
+            ...clone(DEFAULT_STATE).settings,
+            theme: getStoredTheme(),
+          },
+          view: initialView,
+        }), patch);
+        const view = validateView(routeToView(window.location.hash), merged.customTabs);
         setStoredView(view);
         window.history.replaceState(null, "", toHash(view));
+        setLoadedSlices(Object.fromEntries(initialSlices.map((slice) => [slice, true])));
         setState({
-          ...payload,
+          ...merged,
           view,
           settings: {
-            ...payload.settings,
+            ...merged.settings,
             theme: getStoredTheme(),
           },
         });
@@ -620,6 +1342,41 @@ function App() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (loading) return undefined;
+    const requiredSlices = getRequiredSlicesForView(state.view);
+    const missingSlices = requiredSlices.filter((slice) => !loadedSlicesRef.current[slice]);
+    if (!missingSlices.length && viewRefreshToken === 0) return undefined;
+    const slicesToFetch = missingSlices.length ? missingSlices : requiredSlices;
+    if (!slicesToFetch.length) return undefined;
+
+    let alive = true;
+    setSliceLoading(true);
+
+    fetchStateSlices(slicesToFetch)
+      .then((patch) => {
+        if (!alive) return;
+        setState((current) => mergeStatePatch(current, patch));
+        setLoadedSlices((current) => ({
+          ...current,
+          ...Object.fromEntries(slicesToFetch.map((slice) => [slice, true])),
+        }));
+      })
+      .catch((error) => {
+        if (!alive) return;
+        setToast({ tone: "danger", text: error.message });
+      })
+      .finally(() => {
+        if (alive) {
+          setSliceLoading(false);
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [loading, state.view, viewRefreshToken]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -646,7 +1403,13 @@ function App() {
     const nextView = validateView(view, state.customTabs);
     setStoredView(nextView);
     window.history.replaceState(null, "", toHash(nextView));
+    setViewRefreshToken((current) => current + 1);
     setState((current) => ({ ...current, view: nextView }));
+  };
+
+  const selectMoneyTab = (tabId) => {
+    setViewRefreshToken((current) => current + 1);
+    applyLocal((current) => ({ ...current, moneyActiveTabId: tabId }));
   };
 
   const changeTheme = (theme) => {
@@ -683,7 +1446,7 @@ function App() {
         },
       };
 
-      await saveState(payloadToSave);
+      await saveStateSlices(state, payloadToSave);
       setState(normalized);
       setToast({ tone: "success", text: message });
       return true;
@@ -745,7 +1508,7 @@ function App() {
         ...state,
         posts: [nextPost, ...state.posts],
       });
-      await saveState({
+      await saveStateSlices(state, {
         ...nextState,
         settings: {
           ...nextState.settings,
@@ -764,6 +1527,45 @@ function App() {
         },
       });
       setToast({ tone: "success", text: "Пост опубликован" });
+      return true;
+    } catch (error) {
+      setToast({ tone: "danger", text: error.message });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (saving) return false;
+    const post = state.posts.find((item) => item.id === postId);
+    if (!post) return false;
+
+    setSaving(true);
+    try {
+      await deleteImages(post.images || []);
+      const timestamp = nowISO();
+      const nextState = normalizeState({
+        ...state,
+        posts: state.posts.filter((item) => item.id !== postId),
+        settings: {
+          ...state.settings,
+          theme: getStoredTheme(),
+          lastSyncedAt: timestamp,
+          lastUpdatedBy: session?.role || state.settings?.lastUpdatedBy || "",
+        },
+      });
+      const payloadToSave = {
+        ...nextState,
+        settings: {
+          ...nextState.settings,
+          theme: "light",
+        },
+      };
+
+      await saveStateSlices(state, payloadToSave);
+      setState(nextState);
+      setToast({ tone: "success", text: "Пост удалён" });
       return true;
     } catch (error) {
       setToast({ tone: "danger", text: error.message });
@@ -819,11 +1621,13 @@ function App() {
   };
 
   const activeMoneyTab = state.customTabs.find((tab) => tab.id === state.moneyActiveTabId) || state.customTabs[0] || null;
+  const currentViewReady = getRequiredSlicesForView(state.view).every((slice) => loadedSlices[slice]);
+  const pageLoading = loading || sliceLoading || !currentViewReady;
 
   let page = html`<${LoadingPage} />`;
-  if (!loading && !session) {
+  if (!pageLoading && !session) {
     page = html`<${LoginPage} saving=${authSaving} onSubmit=${handleLogin} />`;
-  } else if (!loading && state.view === "planner") {
+  } else if (!pageLoading && state.view === "planner") {
     page = html`
       <${NotePage}
         kind="planner"
@@ -835,18 +1639,19 @@ function App() {
         actor=${session?.role || ""}
       />
     `;
-  } else if (!loading && state.view === "plans") {
+  } else if (!pageLoading && state.view === "plans") {
     page = html`
       <${FeedPage}
         state=${state}
         onSave=${persist}
         onLocalChange=${applyLocal}
         onCreatePost=${handleCreatePost}
+        onDeletePost=${handleDeletePost}
         saving=${saving}
         actor=${session?.role || ""}
       />
     `;
-  } else if (!loading && state.view === "dogs") {
+  } else if (!pageLoading && state.view === "dogs") {
     page = html`
       <${NotePage}
         kind="dogs"
@@ -858,14 +1663,14 @@ function App() {
         actor=${session?.role || ""}
       />
     `;
-  } else if (!loading && state.view === "calendar") {
+  } else if (!pageLoading && state.view === "calendar") {
     page = html`
       <${CalendarPage}
         state=${state}
         onLocalChange=${applyLocal}
       />
     `;
-  } else if (!loading && state.view === "money") {
+  } else if (!pageLoading && state.view === "money") {
     page = html`
       <${MoneyTabPage}
         tabs=${state.customTabs}
@@ -876,10 +1681,10 @@ function App() {
         onSave=${saveMoneyTab}
         onDelete=${deleteMoneyTab}
         onAddTab=${createMoneyTab}
-        onSelectTab=${(tabId) => applyLocal({ ...state, moneyActiveTabId: tabId })}
+        onSelectTab=${selectMoneyTab}
       />
     `;
-  } else if (!loading) {
+  } else if (!pageLoading) {
     page = html`
       <main className="page">
         <section className="panel empty-money">
@@ -1214,7 +2019,7 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   `;
 }
 
-function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving, actor }) {
+function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, saving, actor }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState("");
   const [lightbox, setLightbox] = useState(null);
@@ -1328,12 +2133,9 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving, actor })
     onSave(nextState, message);
   };
 
-  const deletePost = (postId) => {
+  const deletePost = async (postId) => {
     setMenuOpenId("");
-    onSave({
-      ...state,
-      posts: state.posts.filter((post) => post.id !== postId),
-    }, "Пост удалён");
+    await onDeletePost(postId);
   };
 
   return html`
@@ -1420,7 +2222,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, saving, actor })
               ${post.images?.length ? html`
                 <div className=${`post-gallery gallery-${Math.min(post.images.length, 4)}`}>
                   ${post.images.map((image) => html`
-                    <button key=${image.fileId || image.imageUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
+                    <button key=${image.path || image.publicUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
                       <img src=${imageSrc(image)} alt="Изображение публикации" />
                     </button>
                   `)}
@@ -2246,3 +3048,4 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
 }
 
 createRoot(document.getElementById("app")).render(html`<${App} />`);
+
