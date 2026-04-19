@@ -1,4 +1,4 @@
-const CACHE_NAME = "my-family-planner-v1";
+const CACHE_NAME = "my-family-planner-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -28,6 +28,12 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
@@ -41,7 +47,10 @@ self.addEventListener("fetch", (event) => {
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put("./index.html", copy);
+            cache.put("./", response.clone());
+          });
           return response;
         })
         .catch(() => caches.match("./index.html")),
@@ -54,18 +63,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-      return fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (!response || response.status !== 200 || response.type !== "basic") {
           return response;
         }
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         return response;
-      });
-    }),
+      })
+      .catch(() => caches.match(request)),
   );
 });

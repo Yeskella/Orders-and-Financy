@@ -1,7 +1,7 @@
 create table if not exists public.app_meta (
   id text primary key,
   settings jsonb not null default '{}'::jsonb,
-  view text not null default 'planner',
+  view text not null default 'calendar',
   calendar_month text not null default '',
   planner_selected_date text not null default '',
   dogs_selected_date text not null default '',
@@ -14,12 +14,23 @@ create table if not exists public.planner_entries (
   id text primary key,
   date text not null default '',
   text text not null default '',
+  amount text not null default '',
   repeat_monthly boolean not null default false,
+  repeat_weekly boolean not null default false,
   created_at text not null default '',
   created_by text not null default '',
   updated_at text not null default '',
   updated_by text not null default ''
 );
+
+alter table public.app_meta
+  alter column view set default 'calendar';
+
+alter table public.planner_entries
+  add column if not exists amount text not null default '';
+
+alter table public.planner_entries
+  add column if not exists repeat_weekly boolean not null default false;
 
 create table if not exists public.dogs_entries (
   id text primary key,

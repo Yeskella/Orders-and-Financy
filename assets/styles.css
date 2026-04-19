@@ -46,6 +46,46 @@
   --shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
 }
 
+:root[data-theme="dark"] .money-group {
+  background: rgba(32, 40, 50, 0.96);
+  border-color: rgba(70, 83, 98, 0.84);
+}
+
+:root[data-theme="dark"] .money-row {
+  border-bottom-color: rgba(70, 83, 98, 0.72);
+}
+
+:root[data-theme="dark"] .money-row--editing {
+  background: rgba(23, 29, 36, 0.88);
+}
+
+:root[data-theme="dark"] .money-mini-head__title,
+:root[data-theme="dark"] .money-group__title,
+:root[data-theme="dark"] .money-tab-editor input,
+:root[data-theme="dark"] .money-cell input {
+  background: #1c242d;
+  border-color: #3d4a58;
+}
+
+:root[data-theme="dark"] .money-tab-editor__apply,
+:root[data-theme="dark"] .money-row__edit {
+  background: rgba(122, 162, 255, 0.14);
+  border-color: rgba(122, 162, 255, 0.26);
+  color: var(--blue);
+}
+
+:root[data-theme="dark"] .money-tab-editor__cancel,
+:root[data-theme="dark"] .money-row__delete {
+  background: rgba(255, 127, 139, 0.12);
+  border-color: rgba(255, 127, 139, 0.24);
+  color: var(--red);
+}
+
+:root[data-theme="dark"] .money-plan-total,
+:root[data-theme="dark"] .money-group__total {
+  background: rgba(40, 50, 61, 0.96);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -321,6 +361,8 @@ textarea {
   border: 1px solid var(--line);
   background: var(--surface-strong);
   box-shadow: var(--shadow);
+  animation: pop-in 180ms ease both;
+  transform-origin: top right;
 }
 
 .theme-menu__list {
@@ -343,6 +385,7 @@ textarea {
 .page {
   display: grid;
   gap: 16px;
+  animation: page-in 220ms ease both;
 }
 
 .page--wide {
@@ -372,6 +415,7 @@ textarea {
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
+  animation: fade-in 180ms ease both;
 }
 
 .settings-drawer {
@@ -384,6 +428,7 @@ textarea {
   display: grid;
   grid-template-rows: auto auto auto 1fr auto;
   gap: 18px;
+  animation: drawer-in 220ms ease both;
 }
 
 .settings-drawer__head strong {
@@ -481,13 +526,27 @@ textarea {
   gap: 14px;
 }
 
+.editor-checks,
+.note-pill-row,
+.money-group__summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.field--compact {
+  min-width: min(220px, 100%);
+}
+
 .editor-textarea {
   min-height: 260px;
   line-height: 1.6;
 }
 
 .editor-textarea--modal {
-  min-height: 144px;
+  min-height: 108px;
+  max-height: 176px;
   padding-right: 58px;
 }
 
@@ -519,6 +578,12 @@ textarea {
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--muted);
+}
+
+.note-date-pill--amount,
+.money-group__count {
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .note-text,
@@ -984,6 +1049,7 @@ textarea {
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  animation: fade-in 180ms ease both;
 }
 
 .comments-sheet {
@@ -995,6 +1061,7 @@ textarea {
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   box-shadow: var(--shadow);
+  animation: sheet-in 220ms ease both;
 }
 
 .comments-sheet__head {
@@ -1272,6 +1339,7 @@ textarea {
   display: grid;
   place-items: center;
   padding: 20px;
+  animation: fade-in 180ms ease both;
 }
 
 .modal-sheet,
@@ -1289,10 +1357,56 @@ textarea {
   padding: 16px;
   display: grid;
   gap: 12px;
+  animation: sheet-in 220ms ease both;
 }
 
 .modal-sheet--post {
-  width: min(760px, 100%);
+  width: min(720px, 100%);
+  max-height: min(88vh, 760px);
+}
+
+.lightbox__frame {
+  animation: scale-in 200ms ease both;
+}
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 82;
+  background: rgba(10, 14, 20, 0.48);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  animation: fade-in 180ms ease both;
+}
+
+.confirm-dialog {
+  width: min(360px, 100%);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 12px;
+  animation: scale-in 180ms ease both;
+}
+
+.confirm-dialog__head strong {
+  font-size: 1rem;
+}
+
+.confirm-dialog__text {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 
 .modal-head {
@@ -1311,7 +1425,7 @@ textarea {
 }
 
 .upload-drop--compact {
-  min-height: 88px;
+  min-height: 72px;
 }
 
 .upload-drop--list {
@@ -1334,6 +1448,8 @@ textarea {
 .attachment-list {
   display: grid;
   gap: 10px;
+  max-height: 152px;
+  overflow: auto;
 }
 
 .attachment-item {
@@ -1403,6 +1519,15 @@ textarea {
 .field-row--end {
   justify-content: space-between;
   align-items: center;
+}
+
+.modal-fields .field-row--end {
+  position: sticky;
+  bottom: -16px;
+  margin: 0 -16px -16px;
+  padding: 10px 16px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-strong);
 }
 
 .emoji-wrap {
@@ -1499,6 +1624,7 @@ textarea {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
+  min-width: 0;
 }
 
 .calendar-week {
@@ -1522,6 +1648,8 @@ textarea {
   grid-template-rows: auto 1fr;
   gap: 8px;
   text-align: left;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .calendar-cell.is-active {
@@ -1540,6 +1668,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .calendar-cell__day {
@@ -1558,13 +1687,18 @@ textarea {
   display: grid;
   gap: 5px;
   align-content: start;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .calendar-line {
   min-height: 20px;
   padding: 0 8px;
   border-radius: 999px;
-  display: inline-flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
   align-items: center;
   overflow: hidden;
   font-size: 0.73rem;
@@ -1572,6 +1706,8 @@ textarea {
 }
 
 .calendar-line span {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1682,17 +1818,29 @@ textarea {
   border: 1px solid var(--line);
   background: var(--surface-strong);
   color: var(--blue);
-  font-size: 1.6rem;
+  font-size: 0;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
+.money-tab-create svg,
+.money-plus svg {
+  width: 18px;
+  height: 18px;
+}
+
 .money-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.money-tabs--stack {
+  display: grid;
+  gap: 10px;
+  align-items: start;
 }
 
 .money-tabs--center {
@@ -1714,6 +1862,20 @@ textarea {
   color: var(--blue);
 }
 
+.money-tabs--stack .money-tabs__item {
+  width: 100%;
+  justify-content: center;
+}
+
+.money-tabs__item--collapsed {
+  background: var(--surface-muted);
+}
+
+.money-tabs--stack .money-tab-create,
+.money-tabs--stack .money-tab-editor {
+  justify-self: start;
+}
+
 .money-tab-editor {
   display: inline-grid;
   grid-template-columns: minmax(180px, 220px) 42px 42px;
@@ -1726,16 +1888,16 @@ textarea {
 }
 
 .money-tab-editor__apply {
-  color: var(--green);
-  border-color: rgba(30, 166, 114, 0.24);
-  background: rgba(30, 166, 114, 0.1);
+  color: var(--blue);
+  border-color: rgba(47, 109, 246, 0.2);
+  background: rgba(47, 109, 246, 0.08);
   font-size: 1.15rem;
 }
 
 .money-tab-editor__cancel {
   color: var(--red);
-  border-color: rgba(223, 77, 87, 0.24);
-  background: var(--red-soft);
+  border-color: rgba(223, 77, 87, 0.18);
+  background: rgba(223, 77, 87, 0.08);
   font-size: 1.35rem;
 }
 
@@ -1754,20 +1916,66 @@ textarea {
 }
 
 .money-mini-head {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
   gap: 12px;
-  align-items: center;
 }
 
 .money-mini-head__plan {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .money-mini-head__title {
   max-width: 320px;
   min-height: 44px;
+}
+
+.money-mini-head__title-text {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.money-head-bar {
+  min-height: 48px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.money-head-bar__title {
+  min-width: 0;
+  text-align: center;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.money-head-bar__spacer {
+  display: none;
+}
+
+.money-head-bar__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.money-head-bar__actions .icon-button,
+.money-row__toggle {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
 }
 
 .money-mini-head__title.is-invalid {
@@ -1799,7 +2007,15 @@ textarea {
 
 .money-mini-head__actions {
   display: flex;
+  gap: 6px;
+}
+
+.money-inline-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px 42px;
   gap: 8px;
+  width: 100%;
+  max-width: 520px;
 }
 
 .money-toolbar {
@@ -1826,23 +2042,45 @@ textarea {
 
 .money-group {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid rgba(217, 226, 239, 0.7);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--surface);
 }
 
 .money-group__head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
+  display: grid;
+  gap: 10px;
 }
 
 .money-group__actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+}
+
+.money-row__toggle {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  font-size: 0;
+  box-shadow: none;
+  transform: none;
+  padding: 0;
+}
+
+.money-row__toggle:hover {
+  transform: none;
+  background: transparent;
+}
+
+.money-row__toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.money-row__toggle--plan {
+  justify-self: start;
 }
 
 .money-group__title-wrap {
@@ -1861,6 +2099,12 @@ textarea {
   display: inline-flex;
   align-items: center;
   font-weight: 600;
+  word-break: break-word;
+}
+
+.money-group__meta {
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .money-group__total {
@@ -1876,9 +2120,24 @@ textarea {
   font-weight: 600;
 }
 
+.money-group__count {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
 .money-group__items {
   display: grid;
   gap: 6px;
+}
+
+.money-group:not(.is-expanded) .money-group__items,
+.money-group:not(.is-expanded) .money-group__footer {
+  display: none;
 }
 
 .money-group__items .money-row:last-child {
@@ -1888,6 +2147,10 @@ textarea {
 .money-group__footer {
   display: flex;
   justify-content: flex-start;
+}
+
+.money-mini-footer--top {
+  padding-top: 0;
 }
 
 .money-table--minimal {
@@ -1929,21 +2192,31 @@ textarea {
 .money-row__side {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
+}
+
+.money-row__side--view {
+  min-height: 1px;
 }
 
 .money-row__delete {
   color: var(--red);
-  border-color: rgba(223, 77, 87, 0.24);
-  background: var(--red-soft);
-  font-size: 1.55rem;
+  border-color: rgba(223, 77, 87, 0.18);
+  background: rgba(223, 77, 87, 0.08);
+  font-size: 0;
 }
 
 .money-row__edit {
   color: var(--blue);
-  border-color: rgba(47, 109, 246, 0.24);
-  background: rgba(47, 109, 246, 0.1);
-  font-size: 1rem;
+  border-color: rgba(47, 109, 246, 0.2);
+  background: rgba(47, 109, 246, 0.08);
+  font-size: 0;
+}
+
+.money-row__edit svg,
+.money-row__delete svg {
+  width: 18px;
+  height: 18px;
 }
 
 .money-row__edit.is-active {
@@ -1953,6 +2226,7 @@ textarea {
 .money-row--compact {
   grid-template-columns: minmax(0, 1.6fr) auto auto;
   align-items: center;
+  gap: 10px;
 }
 
 .money-row--compact.is-done strong,
@@ -1962,6 +2236,10 @@ textarea {
 
 .money-row--editing {
   grid-template-columns: minmax(0, 1.4fr) minmax(150px, 0.7fr) auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .money-row__edit-head {
@@ -1974,7 +2252,7 @@ textarea {
 
 .money-row__edit-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -1983,7 +2261,7 @@ textarea {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .money-row__summary strong {
@@ -2022,6 +2300,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-weight: 600;
 }
 
 .money-status-toggle.is-done {
@@ -2040,6 +2319,7 @@ textarea {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .money-mini-footer {
@@ -2150,6 +2430,81 @@ textarea {
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @media (max-width: 1080px) {
   .topbar {
     display: grid;
@@ -2238,7 +2593,7 @@ textarea {
   }
 
   .calendar-cell {
-    min-height: 72px;
+    min-height: 82px;
     padding: 8px 6px;
   }
 
@@ -2300,6 +2655,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .money-inline-create {
+    max-width: none;
+  }
+
   .money-mini-head__title {
     max-width: none;
   }
@@ -2350,6 +2709,11 @@ textarea {
     max-height: calc(100vh - 24px);
   }
 
+  .modal-sheet--post {
+    gap: 10px;
+    max-height: calc(100vh - 24px);
+  }
+
   .modal-sheet {
     padding: 14px;
   }
@@ -2358,6 +2722,7 @@ textarea {
     padding-left: 0;
     padding-right: 0;
     gap: 0;
+    background: var(--bg);
   }
 
   .feed-mobile-composer,
@@ -2388,6 +2753,7 @@ textarea {
 
   .feed-stack--board {
     gap: 0;
+    background: var(--bg);
   }
 
   .post-card--mobile {
@@ -2452,14 +2818,14 @@ textarea {
     grid-template-columns: repeat(5, minmax(0, 1fr));
     min-height: 64px;
     padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px));
-    background: rgba(255, 255, 255, 0.94);
-    border-top: 1px solid rgba(15, 20, 28, 0.08);
+    background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+    border-top: 1px solid var(--line);
     backdrop-filter: blur(18px);
   }
 
   :root[data-theme="dark"] .bottom-nav {
-    background: rgba(20, 24, 32, 0.94);
-    border-top-color: rgba(255, 255, 255, 0.08);
+    background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+    border-top-color: var(--line);
   }
 
   .bottom-nav__item {
@@ -2527,6 +2893,25 @@ textarea {
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
+  .editor-textarea--modal {
+    min-height: 88px;
+    max-height: 128px;
+  }
+
+  .attachment-list {
+    max-height: 112px;
+  }
+
+  .modal-fields .field-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .modal-fields .field-row--end {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
   .sheet-comment.is-child {
     margin-left: 16px;
   }
@@ -2570,6 +2955,20 @@ textarea {
   .money-row__edit-head {
     display: grid;
     gap: 8px;
+  }
+
+  .confirm-dialog__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .money-inline-create {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-fields .field-row,
+  .modal-fields .field-row--end {
+    grid-template-columns: 1fr;
   }
 
   .money-row__summary {

@@ -31,10 +31,10 @@ const DATA_SLICE_POSTS = "posts";
 const DATA_SLICE_MONEY = "money";
 
 const FIXED_NAV_ITEMS = [
-  { id: "planner", label: "Траты", title: "Траты", icon: "planner" },
+  { id: "calendar", label: "Календарь", title: "Календарь", icon: "calendar" },
+  { id: "planner", label: "События", title: "События", icon: "planner" },
   { id: "money", label: "Планы", title: "Планы", icon: "money" },
   { id: "plans", label: "Лента", title: "Лента", icon: "feed" },
-  { id: "calendar", label: "Календарь", title: "Календарь", icon: "calendar" },
 ];
 const THEMES = [
   { id: "light", label: "Светлая" },
@@ -143,6 +143,52 @@ function AppIcon({ name, active = false, size = 24 }) {
     `;
   }
 
+  if (name === "edit") {
+    return html`
+      <svg ...${common}>
+        <path d="M12 20h9" />
+        <path d="m16.5 3.5 4 4L8 20l-4 1 1-4Z" />
+      </svg>
+    `;
+  }
+
+  if (name === "trash") {
+    return html`
+      <svg ...${common}>
+        <path d="M4 7h16" />
+        <path d="M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7" />
+        <path d="M18 7 17 19a2 2 0 0 1-2 1H9a2 2 0 0 1-2-1L6 7" />
+        <path d="M10 11.5v4" />
+        <path d="M14 11.5v4" />
+      </svg>
+    `;
+  }
+
+  if (name === "chevron-down") {
+    return html`
+      <svg ...${common}>
+        <path d="m7 10 5 5 5-5" />
+      </svg>
+    `;
+  }
+
+  if (name === "chevron-up") {
+    return html`
+      <svg ...${common}>
+        <path d="m7 14 5-5 5 5" />
+      </svg>
+    `;
+  }
+
+  if (name === "plus") {
+    return html`
+      <svg ...${common}>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </svg>
+    `;
+  }
+
   return html`
     <svg ...${common}>
       <path d="M4.5 11.5 12 5l7.5 6.5" />
@@ -180,7 +226,7 @@ const getDefaultMoneyGroup = (actor = "") => {
   return {
     id: uid("money-group"),
     title: "",
-    items: [getDefaultMoneySubitem(actor)],
+    items: [],
     createdAt: timestamp,
     createdBy: actor,
     updatedAt: timestamp,
@@ -194,7 +240,7 @@ const DEFAULT_STATE = {
     lastSyncedAt: "",
     lastUpdatedBy: "",
   },
-  view: "planner",
+  view: "calendar",
   calendarMonth: "",
   plannerSelectedDate: "",
   dogsSelectedDate: "",
@@ -217,7 +263,7 @@ const isFixedView = (view) => FIXED_NAV_ITEMS.some((item) => item.id === view);
 const getStoredTheme = () => window.localStorage.getItem(THEME_STORAGE_KEY) || "light";
 const setStoredTheme = (theme) => window.localStorage.setItem(THEME_STORAGE_KEY, theme);
 
-const getStoredView = () => window.localStorage.getItem(VIEW_STORAGE_KEY) || "planner";
+const getStoredView = () => window.localStorage.getItem(VIEW_STORAGE_KEY) || "calendar";
 const setStoredView = (view) => window.localStorage.setItem(VIEW_STORAGE_KEY, view);
 
 const getStoredSession = () => {
@@ -291,8 +337,8 @@ const validateView = (view, customTabs) => {
   if (view === "dogs") return "planner";
   if (isFixedView(view)) return view;
   if (isMoneyView(view) && customTabs.some((tab) => tab.id === moneyIdFromView(view))) return "money";
-  if (customTabs.length) return "planner";
-  return "planner";
+  if (customTabs.length) return "calendar";
+  return "calendar";
 };
 
 const toMonthKey = (date) => (date || todayISO()).slice(0, 7);
@@ -408,7 +454,9 @@ const normalizeEntry = (entry, prefix) => ({
   id: entry?.id || uid(prefix),
   date: entry?.date || "",
   text: entry?.text || "",
+  amount: entry?.amount ?? "",
   repeatMonthly: Boolean(entry?.repeatMonthly),
+  repeatWeekly: Boolean(entry?.repeatWeekly),
   createdAt: entry?.createdAt || entry?.updatedAt || "",
   createdBy: entry?.createdBy || "",
   updatedAt: entry?.updatedAt || "",
@@ -437,8 +485,8 @@ const normalizePost = (post) => ({
   createdBy: post?.createdBy || post?.author || "",
   updatedAt: post?.updatedAt || post?.createdAt || "",
   updatedBy: post?.updatedBy || post?.createdBy || post?.author || "",
-  startDate: post?.startDate || (post?.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
-  endDate: post?.endDate || post?.startDate || (post?.createdAt ? post.createdAt.slice(0, 10) : todayISO()),
+  startDate: post?.startDate || "",
+  endDate: post?.endDate || post?.startDate || "",
   comments: Array.isArray(post?.comments) ? post.comments.map((comment) => normalizeComment(comment)) : [],
 });
 
@@ -516,7 +564,9 @@ const convertLegacyNote = (legacyNote, prefix) => {
     id: `${prefix}-legacy`,
     date: legacyNote.date || "",
     text: legacyNote.text || "",
+    amount: "",
     repeatMonthly: false,
+    repeatWeekly: false,
     updatedAt: legacyNote.updatedAt || "",
   }, prefix)];
 };
@@ -751,7 +801,9 @@ const fetchEntriesSlice = async (store, table, key) => {
       id: entry.id,
       date: entry.date || "",
       text: entry.text || "",
+      amount: table === store.tables.planner ? (entry.amount ?? "") : "",
       repeatMonthly: Boolean(entry.repeat_monthly),
+      repeatWeekly: table === store.tables.planner ? Boolean(entry.repeat_weekly) : false,
       createdAt: entry.created_at || "",
       createdBy: entry.created_by || "",
       updatedAt: entry.updated_at || "",
@@ -960,7 +1012,9 @@ const saveFullState = async (payload, providedStore = null) => {
     id: entry.id,
     date: entry.date || "",
     text: entry.text || "",
+    amount: entry.amount ?? "",
     repeat_monthly: Boolean(entry.repeatMonthly),
+    repeat_weekly: Boolean(entry.repeatWeekly),
     created_at: entry.createdAt || "",
     created_by: entry.createdBy || "",
     updated_at: entry.updatedAt || "",
@@ -1134,16 +1188,26 @@ const saveMetaState = async (store, state) => {
 };
 
 const saveEntriesSlice = async (store, table, entries) => {
-  const rows = entries.map((entry) => ({
-    id: entry.id,
-    date: entry.date || "",
-    text: entry.text || "",
-    repeat_monthly: Boolean(entry.repeatMonthly),
-    created_at: entry.createdAt || "",
-    created_by: entry.createdBy || "",
-    updated_at: entry.updatedAt || "",
-    updated_by: entry.updatedBy || "",
-  }));
+  const rows = entries.map((entry) => {
+    const base = {
+      id: entry.id,
+      date: entry.date || "",
+      text: entry.text || "",
+      repeat_monthly: Boolean(entry.repeatMonthly),
+      created_at: entry.createdAt || "",
+      created_by: entry.createdBy || "",
+      updated_at: entry.updatedAt || "",
+      updated_by: entry.updatedBy || "",
+    };
+    if (table === store.tables.planner) {
+      return {
+        ...base,
+        amount: entry.amount ?? "",
+        repeat_weekly: Boolean(entry.repeatWeekly),
+      };
+    }
+    return base;
+  });
 
   await upsertRows(store.client, table, rows);
   await deleteMissingRows(store.client, table, rows.map((row) => row.id));
@@ -1334,6 +1398,9 @@ const deleteImages = async (images) => {
 };
 const dateMatchesEntry = (entry, date) => {
   if (!entry?.date || !date) return false;
+  if (entry.repeatWeekly) {
+    return new Date(`${entry.date}T12:00:00`).getDay() === new Date(`${date}T12:00:00`).getDay();
+  }
   if (entry.repeatMonthly) {
     return entry.date.slice(8, 10) === date.slice(8, 10);
   }
@@ -1376,16 +1443,16 @@ const collectEventsForDate = (state, date) => {
       items.push({
         id: `${entry.id}-${date}`,
         type: "planner",
-        label: "Траты",
+        label: "Событие",
         text: entry.text,
         entry,
       });
     }
   });
   state.posts.filter((post) => !post.archived).forEach((post) => {
-    const start = post.startDate || post.createdAt.slice(0, 10);
+    const start = post.startDate || "";
     const end = post.endDate || start;
-    if (inRange(date, start, end)) {
+    if (start && end && inRange(date, start, end)) {
       items.push({
         id: `${post.id}-${date}`,
         type: "post",
@@ -1403,7 +1470,9 @@ const previewEventsForDate = (state, date) => collectEventsForDate(state, date)
   .map((item) => ({
     id: item.id,
     type: item.type,
-    label: item.text.split("\n")[0].trim() || item.label,
+    label: item.type === "planner" && item.entry?.amount
+      ? `${item.text.split("\n")[0].trim() || item.label} · ${formatMoney(parseMoneyInput(item.entry.amount))}`
+      : (item.text.split("\n")[0].trim() || item.label),
   }));
 
 const monthMatrix = (monthKey) => {
@@ -1434,6 +1503,7 @@ function App() {
   const [loadedSlices, setLoadedSlices] = useState({});
   const [sliceLoading, setSliceLoading] = useState(false);
   const [viewRefreshToken, setViewRefreshToken] = useState(0);
+  const [moneyTabRefreshToken, setMoneyTabRefreshToken] = useState(0);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
@@ -1591,10 +1661,43 @@ function App() {
   const selectMoneyTab = (tabId) => {
     setStoredView("money");
     window.history.replaceState(null, "", toHash("money"));
-    setViewRefreshToken((current) => current + 1);
     setSettingsOpen(false);
     setState((current) => normalizeState({ ...current, view: "money", moneyActiveTabId: tabId }));
+    setMoneyTabRefreshToken((current) => current + 1);
   };
+
+  useEffect(() => {
+    if (loading || !moneyTabRefreshToken || state.view !== "money") return undefined;
+
+    let alive = true;
+
+    fetchStateSlices([DATA_SLICE_MONEY])
+      .then((patch) => {
+        if (!alive || !hasOwn(patch, "customTabs")) return;
+        setState((current) => {
+          const nextTabs = Array.isArray(patch.customTabs) ? patch.customTabs : current.customTabs;
+          const hasActiveTab = nextTabs.some((tab) => tab.id === current.moneyActiveTabId);
+          return normalizeState({
+            ...current,
+            customTabs: nextTabs,
+            moneyActiveTabId: hasActiveTab ? current.moneyActiveTabId : (nextTabs[0]?.id || ""),
+            view: "money",
+          });
+        });
+        setLoadedSlices((current) => ({
+          ...current,
+          [DATA_SLICE_MONEY]: true,
+        }));
+      })
+      .catch((error) => {
+        if (!alive) return;
+        setToast({ tone: "danger", text: error.message });
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [loading, moneyTabRefreshToken, state.view]);
 
   const changeTheme = (theme) => {
     setStoredTheme(theme);
@@ -1686,8 +1789,8 @@ function App() {
         createdBy: session.role,
         updatedAt: timestamp,
         updatedBy: session.role,
-        startDate: draft.startDate,
-        endDate: draft.endDate,
+        startDate: draft.startDate || draft.endDate || "",
+        endDate: draft.endDate || draft.startDate || "",
       });
       const nextState = normalizeState({
         ...state,
@@ -1764,6 +1867,10 @@ function App() {
     if (saving) return false;
     const post = state.posts.find((item) => item.id === postId);
     if (!post) return false;
+    if ((post.createdBy || post.author || "") !== (session?.role || "")) {
+      setToast({ tone: "danger", text: "Можно редактировать только свои посты" });
+      return false;
+    }
 
     setSaving(true);
     try {
@@ -1782,8 +1889,8 @@ function App() {
         pinned: draft.pinned,
         updatedAt: timestamp,
         updatedBy: session.role,
-        startDate: draft.startDate,
-        endDate: draft.endDate,
+        startDate: draft.startDate || draft.endDate || "",
+        endDate: draft.endDate || draft.startDate || "",
       });
 
       const nextState = normalizeState({
@@ -1811,11 +1918,13 @@ function App() {
 
   const createMoneyTab = async (title) => {
     if (!session) return;
+    setStoredView("money");
+    window.history.replaceState(null, "", toHash("money"));
     const timestamp = nowISO();
     const nextTab = normalizeMoneyTab({
       id: uid("money"),
       title: title?.trim() || (state.customTabs.length ? `План ${state.customTabs.length + 1}` : "План"),
-      groups: [getDefaultMoneyGroup(session.role)],
+      groups: [],
       createdAt: timestamp,
       createdBy: session.role,
       updatedAt: timestamp,
@@ -1828,7 +1937,7 @@ function App() {
       customTabs: [...state.customTabs, nextTab],
     }, "Вкладка создана");
     if (saved) {
-      setView("money");
+      setSettingsOpen(false);
     }
   };
 
@@ -1842,6 +1951,8 @@ function App() {
   };
 
   const deleteMoneyTab = async (tabId) => {
+    setStoredView("money");
+    window.history.replaceState(null, "", toHash("money"));
     const rest = state.customTabs.filter((tab) => tab.id !== tabId);
     const saved = await persist({
       ...state,
@@ -1850,7 +1961,7 @@ function App() {
       customTabs: rest,
     }, "Вкладка удалена");
     if (saved) {
-      setView("money");
+      setSettingsOpen(false);
     }
   };
 
@@ -1865,7 +1976,7 @@ function App() {
     page = html`
       <${NotePage}
         kind="planner"
-        title="Траты"
+        title="События"
         state=${state}
         onSave=${persist}
         onLocalChange=${applyLocal}
@@ -2109,6 +2220,42 @@ function ButtonSpinner() {
   return html`<span className="button-spinner" aria-hidden="true"></span>`;
 }
 
+function ConfirmDialog({
+  open,
+  title = "Подтверждение",
+  message = "",
+  confirmLabel = "Удалить",
+  cancelLabel = "Отмена",
+  saving = false,
+  onConfirm,
+  onCancel,
+}) {
+  if (!open) return null;
+
+  return html`
+    <div
+      className="confirm-backdrop"
+      onClick=${() => {
+        if (!saving) onCancel();
+      }}
+    >
+      <section className="confirm-dialog" onClick=${(event) => event.stopPropagation()}>
+        <div className="confirm-dialog__head">
+          <strong>${title}</strong>
+        </div>
+        <p className="confirm-dialog__text">${message}</p>
+        <div className="confirm-dialog__actions">
+          <button type="button" className="button button--ghost" onClick=${onCancel} disabled=${saving}>${cancelLabel}</button>
+          <button type="button" className="button button--red" onClick=${onConfirm} disabled=${saving}>
+            ${saving ? html`<${ButtonSpinner} />` : null}
+            <span>${confirmLabel}</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) {
   const dateKey = kind === "planner" ? "plannerSelectedDate" : "dogsSelectedDate";
   const listKey = kind === "planner" ? "plannerEntries" : "dogsEntries";
@@ -2116,23 +2263,29 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   const entries = state[listKey];
   const activeEntry = useMemo(() => findEntryForDate(entries, selectedDate), [entries, selectedDate]);
   const [editing, setEditing] = useState(!activeEntry);
-  const [draft, setDraft] = useState({ text: "", repeatMonthly: false });
+  const [draft, setDraft] = useState({ text: "", amount: "", repeatMonthly: false, repeatWeekly: false });
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     setEditing(!activeEntry);
     setDraft({
       text: activeEntry?.text || "",
+      amount: activeEntry?.amount ?? "",
       repeatMonthly: Boolean(activeEntry?.repeatMonthly),
+      repeatWeekly: Boolean(activeEntry?.repeatWeekly),
     });
+    setConfirmDeleteOpen(false);
   }, [activeEntry?.id, activeEntry?.updatedAt, selectedDate]);
 
   const saveEntry = async () => {
     const timestamp = nowISO();
     const nextEntry = normalizeEntry({
       id: activeEntry?.id || uid(kind),
-      date: activeEntry?.repeatMonthly ? activeEntry.date : selectedDate,
+      date: (activeEntry?.repeatMonthly || activeEntry?.repeatWeekly) ? activeEntry.date : selectedDate,
       text: draft.text.trim(),
+      amount: kind === "planner" ? String(draft.amount ?? "").trim() : "",
       repeatMonthly: draft.repeatMonthly,
+      repeatWeekly: draft.repeatWeekly,
       createdAt: activeEntry?.createdAt || timestamp,
       createdBy: activeEntry?.createdBy || actor,
       updatedAt: timestamp,
@@ -2143,9 +2296,23 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
       ...state,
       [dateKey]: selectedDate,
       [listKey]: upsertEntry(entries, nextEntry),
-    }, "Запись сохранена");
+    }, kind === "planner" ? "Событие сохранено" : "Запись сохранена");
 
     if (saved) setEditing(false);
+  };
+
+  const deleteEntry = async () => {
+    if (!activeEntry || saving) return;
+    const saved = await onSave({
+      ...state,
+      [dateKey]: selectedDate,
+      [listKey]: entries.filter((entry) => entry.id !== activeEntry.id),
+    }, kind === "planner" ? "Событие удалено" : "Запись удалена");
+
+    if (saved) {
+      setConfirmDeleteOpen(false);
+      setEditing(false);
+    }
   };
 
   const entryMeta = actorStamp(activeEntry?.updatedBy || activeEntry?.createdBy, activeEntry?.updatedAt || activeEntry?.createdAt);
@@ -2180,38 +2347,106 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                 <span>${saving ? "Сохранение..." : "Сохранить"}</span>
               </button>
             `}
+
+            ${activeEntry ? html`
+              <button
+                type="button"
+                className="button button--ghost danger-ghost button--equal"
+                onClick=${() => setConfirmDeleteOpen(true)}
+                disabled=${saving}
+              >Удалить</button>
+            ` : null}
           </div>
         </div>
 
         <div className="editor-card">
           ${editing ? html`
             <div className="editor-stack">
+              ${kind === "planner" ? html`
+                <div className="field-row">
+                  <label className="field field--compact">
+                    <span>Сумма</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      value=${draft.amount}
+                      onInput=${(event) => setDraft((current) => ({ ...current, amount: event.target.value }))}
+                      placeholder="0"
+                      disabled=${saving}
+                    />
+                  </label>
+                </div>
+              ` : null}
+
               <textarea
                 className="editor-textarea"
                 value=${draft.text}
                 onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
-                placeholder="Запишите траты, расходы, напоминания или договоренности"
+                placeholder=${kind === "planner" ? "Опишите событие, встречу, платеж или договоренность" : "Запишите заметку"}
                 disabled=${saving}
               ></textarea>
 
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked=${draft.repeatMonthly}
-                  onChange=${(event) => setDraft((current) => ({ ...current, repeatMonthly: event.target.checked }))}
-                  disabled=${saving}
-                />
-                <span>Повторять ежемесячно</span>
-              </label>
+              <div className="editor-checks">
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked=${draft.repeatMonthly}
+                    onChange=${(event) => setDraft((current) => ({
+                      ...current,
+                      repeatMonthly: event.target.checked,
+                      repeatWeekly: event.target.checked ? false : current.repeatWeekly,
+                    }))}
+                    disabled=${saving}
+                  />
+                  <span>Повторять ежемесячно</span>
+                </label>
+
+                ${kind === "planner" ? html`
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked=${draft.repeatWeekly}
+                      onChange=${(event) => setDraft((current) => ({
+                        ...current,
+                        repeatWeekly: event.target.checked,
+                        repeatMonthly: event.target.checked ? false : current.repeatMonthly,
+                      }))}
+                      disabled=${saving}
+                    />
+                    <span>Повторять еженедельно</span>
+                  </label>
+                ` : null}
+              </div>
             </div>
           ` : html`
             <div className="note-view">
-              <div className="note-date-pill">${activeEntry?.repeatMonthly ? "Каждый месяц" : formatDate(selectedDate)}</div>
+              <div className="note-pill-row">
+                <div className="note-date-pill">
+                  ${activeEntry?.repeatWeekly
+                    ? "Каждую неделю"
+                    : activeEntry?.repeatMonthly
+                      ? "Каждый месяц"
+                      : formatDate(selectedDate)}
+                </div>
+                ${kind === "planner" && activeEntry?.amount ? html`
+                  <div className="note-date-pill note-date-pill--amount">${formatMoney(parseMoneyInput(activeEntry.amount))}</div>
+                ` : null}
+              </div>
               <div className="note-text">${activeEntry?.text || "На эту дату пока нет записи."}</div>
               ${entryMeta ? html`<div className="meta-line">Обновил: ${entryMeta}</div>` : null}
             </div>
           `}
         </div>
+        <${ConfirmDialog}
+          open=${confirmDeleteOpen}
+          saving=${saving}
+          message=${kind === "planner"
+            ? "Вы уверены, что хотите удалить событие?"
+            : "Вы уверены, что хотите удалить запись?"}
+          onCancel=${() => setConfirmDeleteOpen(false)}
+          onConfirm=${deleteEntry}
+        />
       </section>
     </main>
   `;
@@ -2223,6 +2458,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
   const [menuOpenId, setMenuOpenId] = useState("");
   const [lightbox, setLightbox] = useState(null);
   const [commentsPostId, setCommentsPostId] = useState("");
+  const [confirmDeletePostId, setConfirmDeletePostId] = useState("");
   const [commentDrafts, setCommentDrafts] = useState({});
   const [replyTargets, setReplyTargets] = useState({});
   const [commentMenuKey, setCommentMenuKey] = useState("");
@@ -2367,6 +2603,13 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
     }
   }, [editingPostId, state.posts]);
 
+  useEffect(() => {
+    if (!confirmDeletePostId) return;
+    if (!state.posts.some((post) => post.id === confirmDeletePostId)) {
+      setConfirmDeletePostId("");
+    }
+  }, [confirmDeletePostId, state.posts]);
+
   const updatePost = (postId, patch, message) => {
     const timestamp = nowISO();
     const nextState = {
@@ -2382,15 +2625,27 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
     onSave(nextState, message);
   };
 
-  const deletePost = async (postId) => {
+  const requestDeletePost = (postId) => {
     setMenuOpenId("");
-    if (commentsPostId === postId) {
+    setConfirmDeletePostId(postId);
+  };
+
+  const confirmDeletePost = async () => {
+    if (!confirmDeletePostId) return;
+    if (commentsPostId === confirmDeletePostId) {
       closeComments();
     }
-    await onDeletePost(postId);
+    const saved = await onDeletePost(confirmDeletePostId);
+    if (saved) {
+      setConfirmDeletePostId("");
+    }
   };
 
   const startEditPost = (postId) => {
+    const post = state.posts.find((item) => item.id === postId);
+    if (!post || (post.createdBy || post.author || "") !== (actor || "")) {
+      return;
+    }
     setMenuOpenId("");
     setEditingPostId(postId);
     setModalOpen(true);
@@ -2549,6 +2804,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
           ${posts.length ? posts.map((post, index) => {
             const postActor = post.updatedBy || post.author || "Lesha";
             const authorTheme = getAuthorTheme(postActor);
+            const ownPost = (post.createdBy || post.author || "") === (actor || "");
             return html`
             <article key=${post.id} className=${`post-card post-card--flat post-card--mobile${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
               <div className="post-head post-head--mobile">
@@ -2572,14 +2828,16 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
                   <button type="button" className="menu-button" onClick=${() => setMenuOpenId((value) => value === post.id ? "" : post.id)} disabled=${saving}>⋯</button>
                   ${menuOpenId === post.id && html`
                     <div className="post-menu">
-                      <button
-                        type="button"
-                        className="post-menu__item"
-                        onClick=${() => startEditPost(post.id)}
-                      >
-                        <span className="post-menu__icon">✎</span>
-                        <span className="post-menu__label">Редактировать</span>
-                      </button>
+                      ${ownPost ? html`
+                        <button
+                          type="button"
+                          className="post-menu__item"
+                          onClick=${() => startEditPost(post.id)}
+                        >
+                          <span className="post-menu__icon">✎</span>
+                          <span className="post-menu__label">Редактировать</span>
+                        </button>
+                      ` : null}
                       <button
                         type="button"
                         className="post-menu__item"
@@ -2596,7 +2854,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
                         <span className="post-menu__icon">🗂</span>
                         <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
                       </button>
-                      <button type="button" className="post-menu__item is-danger" onClick=${() => deletePost(post.id)}>
+                      <button type="button" className="post-menu__item is-danger" onClick=${() => requestDeletePost(post.id)}>
                         <span className="post-menu__icon">⌫</span>
                         <span className="post-menu__label">Удалить</span>
                       </button>
@@ -2727,6 +2985,14 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
         />
       `}
 
+      <${ConfirmDialog}
+        open=${Boolean(confirmDeletePostId)}
+        saving=${saving}
+        message="Вы уверены, что хотите удалить пост?"
+        onCancel=${() => setConfirmDeletePostId("")}
+        onConfirm=${confirmDeletePost}
+      />
+
       ${lightbox && html`
         <div className="lightbox" onClick=${() => setLightbox(null)}>
           <div className="lightbox__frame" onClick=${(event) => event.stopPropagation()}>
@@ -2745,8 +3011,8 @@ function PostModal({ saving, onClose, onSubmit, initialPost = null }) {
   const buildDraft = React.useCallback((post = null) => ({
     text: post?.text || "",
     pinned: Boolean(post?.pinned),
-    startDate: post?.startDate || todayISO(),
-    endDate: post?.endDate || post?.startDate || todayISO(),
+    startDate: post?.startDate || "",
+    endDate: post?.endDate || post?.startDate || "",
     existingImages: Array.isArray(post?.images) ? post.images.map((image) => ({ ...image })) : [],
     files: [],
     previews: [],
@@ -2819,7 +3085,7 @@ function PostModal({ saving, onClose, onSubmit, initialPost = null }) {
         <div className="modal-head">
           <div>
             <h3>${isEditing ? "Редактировать пост" : "Новая запись"}</h3>
-            <p>${isEditing ? "Можно поменять текст, даты и состав фотографий." : "Добавь текст, фотографии и даты показа в календаре."}</p>
+            <p>${isEditing ? "Можно поменять текст, даты и состав фотографий." : "Добавь текст и фотографии. Даты для календаря можно не заполнять."}</p>
           </div>
           <button type="button" className="modal-close" onClick=${onClose}>×</button>
         </div>
@@ -2901,11 +3167,11 @@ function PostModal({ saving, onClose, onSubmit, initialPost = null }) {
 
           <div className="field-row">
             <label className="field">
-              <span>С</span>
+              <span>С даты</span>
               <input type="date" value=${draft.startDate} onInput=${(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} disabled=${saving} />
             </label>
             <label className="field">
-              <span>По</span>
+              <span>По дату</span>
               <input type="date" value=${draft.endDate} onInput=${(event) => setDraft((current) => ({ ...current, endDate: event.target.value }))} disabled=${saving} />
             </label>
           </div>
@@ -2975,7 +3241,7 @@ function CalendarPage({ state, onLocalChange }) {
         </div>
 
         <div className="calendar-summary">
-          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>Траты: ${totals.planner}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>События: ${totals.planner}</span></div>
           <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента: ${totals.post}</span></div>
         </div>
 
@@ -3043,6 +3309,9 @@ function CalendarPage({ state, onLocalChange }) {
           ` : html`
             <article key=${item.id} className="agenda-item">
               <div className=${`agenda-badge agenda-badge--${item.type}`}>${item.label}</div>
+              ${item.type === "planner" && item.entry?.amount ? html`
+                <div className="agenda-post-meta">Сумма: ${formatMoney(parseMoneyInput(item.entry.amount))}</div>
+              ` : null}
               <div className="agenda-text">${item.text}</div>
             </article>
           `) : html`
@@ -3066,20 +3335,32 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
   const [groups, setGroups] = useState(() => cloneGroups(tab?.groups || []));
   const [creating, setCreating] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
+  const [planExpanded, setPlanExpanded] = useState(true);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [newGroupDraft, setNewGroupDraft] = useState(null);
   const [editingGroups, setEditingGroups] = useState({});
+  const [expandedGroups, setExpandedGroups] = useState({});
   const [editingItems, setEditingItems] = useState({});
   const [itemDrafts, setItemDrafts] = useState({});
+  const [newItemDrafts, setNewItemDrafts] = useState({});
   const [titleError, setTitleError] = useState("");
   const [titleShake, setTitleShake] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     setTitle(tab?.title || "");
     setGroups(cloneGroups(tab?.groups || []));
+    setPlanExpanded(true);
+    setEditingTitle(false);
+    setNewGroupDraft(null);
     setEditingGroups({});
+    setExpandedGroups({});
     setEditingItems({});
     setItemDrafts({});
+    setNewItemDrafts({});
     setTitleError("");
     setTitleShake(false);
+    setConfirmDelete(null);
   }, [tab?.id, tab?.title, tab?.updatedAt, tab?.groups?.length]);
 
   useEffect(() => {
@@ -3106,41 +3387,12 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     setCreating(false);
   };
 
-  if (!tab && !creating) {
-    return html`
-      <main className="page">
-        <section className="panel money-panel money-panel--empty">
-          <button type="button" className="money-plus" onClick=${startCreate} disabled=${saving}>+</button>
-        </section>
-      </main>
-    `;
-  }
-
-  if (!tab && creating) {
-    return html`
-      <main className="page">
-        <section className="panel money-panel money-panel--empty">
-          <div className="money-tabs money-tabs--center">
-            <div className="money-tab-editor">
-              <input
-                type="text"
-                value=${draftTitle}
-                onInput=${(event) => setDraftTitle(event.target.value)}
-                placeholder="Название вкладки"
-                disabled=${saving}
-              />
-              <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
-              <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
-            </div>
-          </div>
-        </section>
-      </main>
-    `;
-  }
-
   const groupTotal = (group) => (group.items || []).reduce((sum, item) => sum + parseMoneyInput(item.cost), 0);
   const total = useMemo(() => groups.reduce((sum, group) => sum + groupTotal(group), 0), [groups]);
+  const groupsCount = groups.length;
   const titleDirty = String(title || "") !== String(tab?.title || "");
+  const isPlanOpen = editingTitle || planExpanded;
+  const visibleTabs = tabs.filter((item) => item.id !== activeTabId);
 
   const getSavedGroup = (groupId) => (tab?.groups || []).find((group) => group.id === groupId) || null;
   const getSavedItem = (groupId, itemId) => (getSavedGroup(groupId)?.items || []).find((item) => item.id === itemId) || null;
@@ -3205,14 +3457,73 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     setGroups((current) => current.map((group) => (group.id === groupId ? nextGroup : group)));
   };
 
-  const addGroup = () => {
-    const nextGroup = getDefaultMoneyGroup(actor);
-    setGroups((current) => [...current, nextGroup]);
-    setEditingGroups((current) => ({ ...current, [nextGroup.id]: true }));
+  const startEditTitle = () => {
+    setPlanExpanded(true);
+    setEditingTitle(true);
+    setTitleError("");
+    setTitleShake(false);
+  };
+
+  const cancelTitle = () => {
+    setTitle(tab?.title || "");
+    setEditingTitle(false);
+    setTitleError("");
+    setTitleShake(false);
+    setNewGroupDraft(null);
+  };
+
+  const saveTitle = async () => {
+    const saved = await commitTab(title, groups);
+    if (saved) {
+      setEditingTitle(false);
+    }
+  };
+
+  const startNewGroup = () => {
+    setPlanExpanded(true);
+    setEditingTitle(true);
+    setNewGroupDraft({
+      id: uid("money-group"),
+      title: "",
+    });
+  };
+
+  const cancelNewGroup = () => {
+    setNewGroupDraft(null);
+  };
+
+  const saveNewGroup = async () => {
+    const nextTitle = String(newGroupDraft?.title || "").trim();
+    if (!nextTitle) return;
+    const timestamp = nowISO();
+    const nextGroup = normalizeMoneyGroup({
+      id: newGroupDraft.id,
+      title: nextTitle,
+      items: [],
+      createdAt: timestamp,
+      createdBy: actor,
+      updatedAt: timestamp,
+      updatedBy: actor,
+    });
+    const saved = await commitTab(title, [...groups, nextGroup], () => {
+      setNewGroupDraft(null);
+    });
+    if (saved) {
+      setExpandedGroups((current) => ({
+        ...current,
+        [nextGroup.id]: false,
+      }));
+    }
   };
 
   const startEditGroup = (groupId) => {
+    setPlanExpanded(true);
     setEditingGroups((current) => ({ ...current, [groupId]: true }));
+    setExpandedGroups((current) => ({ ...current, [groupId]: true }));
+  };
+
+  const toggleGroupExpanded = (groupId) => {
+    setExpandedGroups((current) => ({ ...current, [groupId]: !current[groupId] }));
   };
 
   const isGroupDirty = (group) => {
@@ -3257,12 +3568,27 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
       });
       return next;
     });
+    setNewItemDrafts((current) => {
+      const next = { ...current };
+      delete next[groupId];
+      return next;
+    });
   };
 
   const removeGroup = async (groupId) => {
     const nextGroups = groups.filter((group) => group.id !== groupId);
-    await commitTab(title, nextGroups, () => {
+    return commitTab(title, nextGroups, () => {
       setEditingGroups((current) => {
+        const next = { ...current };
+        delete next[groupId];
+        return next;
+      });
+      setExpandedGroups((current) => {
+        const next = { ...current };
+        delete next[groupId];
+        return next;
+      });
+      setNewItemDrafts((current) => {
         const next = { ...current };
         delete next[groupId];
         return next;
@@ -3270,31 +3596,64 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     });
   };
 
-  const addSubitem = (groupId) => {
-    const nextItem = getDefaultMoneySubitem(actor);
-    setGroups((current) => current.map((group) => (
+  const startNewSubitem = (groupId) => {
+    setPlanExpanded(true);
+    setExpandedGroups((current) => ({ ...current, [groupId]: true }));
+    setEditingGroups((current) => ({ ...current, [groupId]: true }));
+    setNewItemDrafts((current) => ({
+      ...current,
+      [groupId]: getDefaultMoneySubitem(actor),
+    }));
+  };
+
+  const updateNewSubitemDraft = (groupId, patch) => {
+    setNewItemDrafts((current) => ({
+      ...current,
+      [groupId]: {
+        ...current[groupId],
+        ...patch,
+      },
+    }));
+  };
+
+  const cancelNewSubitem = (groupId) => {
+    setNewItemDrafts((current) => {
+      const next = { ...current };
+      delete next[groupId];
+      return next;
+    });
+  };
+
+  const saveNewSubitem = async (groupId) => {
+    const draft = newItemDrafts[groupId];
+    if (!draft || (!String(draft.name || "").trim() && !String(draft.cost || "").trim())) return;
+    const timestamp = nowISO();
+    const nextItem = normalizeMoneySubitem({
+      ...draft,
+      isNew: false,
+      createdAt: timestamp,
+      createdBy: actor,
+      updatedAt: timestamp,
+      updatedBy: actor,
+    });
+    const nextGroups = groups.map((group) => (
       group.id === groupId
         ? { ...group, items: [...group.items, nextItem] }
         : group
-    )));
-    setEditingGroups((current) => ({ ...current, [groupId]: true }));
-    setEditingItems((current) => ({ ...current, [nextItem.id]: true }));
-    setItemDrafts((current) => ({ ...current, [nextItem.id]: { ...nextItem } }));
-  };
-
-  const updateSubitem = (groupId, itemId, patch) => {
-    setGroups((current) => current.map((group) => (
-      group.id === groupId
-        ? {
-          ...group,
-          items: group.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
-        }
-        : group
-    )));
+    ));
+    await commitTab(title, nextGroups, () => {
+      setNewItemDrafts((current) => {
+        const next = { ...current };
+        delete next[groupId];
+        return next;
+      });
+    });
   };
 
   const startEditSubitem = (groupId, item) => {
+    setPlanExpanded(true);
     setEditingGroups((current) => ({ ...current, [groupId]: true }));
+    setExpandedGroups((current) => ({ ...current, [groupId]: true }));
     setEditingItems((current) => ({ ...current, [item.id]: true }));
     setItemDrafts((current) => ({ ...current, [item.id]: { ...item } }));
   };
@@ -3382,30 +3741,96 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
         ? { ...group, items: group.items.filter((item) => item.id !== itemId) }
         : group
     ));
-    await commitTab(title, nextGroups, () => {
+    return commitTab(title, nextGroups, () => {
       clearSubitemEdit(itemId);
     });
   };
 
-  const saveTitle = async () => {
-    await commitTab(title, groups);
-  };
+  const confirmDeleteAction = async () => {
+    if (!confirmDelete) return;
 
-  const cancelTitle = () => {
-    setTitle(tab?.title || "");
-    setTitleError("");
-    setTitleShake(false);
+    let saved = false;
+    if (confirmDelete.type === "tab") {
+      saved = await onDelete(tab.id);
+    } else if (confirmDelete.type === "group") {
+      saved = await removeGroup(confirmDelete.groupId);
+    } else if (confirmDelete.type === "item") {
+      saved = await removeSubitem(confirmDelete.groupId, confirmDelete.itemId);
+    }
+
+    if (saved) {
+      setConfirmDelete(null);
+    }
   };
 
   return html`
     <main className="page">
       <section className="panel money-panel">
-        <div className="money-tabs">
-          ${tabs.map((item) => html`
+        ${tab ? html`
+          <div className="money-mini-head money-mini-head--clean">
+            <div className="money-mini-head__plan">
+              <div className="money-head-bar money-head-bar--plan">
+                <button
+                  type="button"
+                  title=${isPlanOpen ? "Свернуть план" : "Развернуть план"}
+                  className="icon-button money-row__toggle money-row__toggle--plan"
+                  onClick=${() => setPlanExpanded((current) => !current)}
+                  disabled=${saving || editingTitle}
+                  aria-label=${isPlanOpen ? "Свернуть план" : "Развернуть план"}
+                >
+                  <${AppIcon} name=${isPlanOpen ? "chevron-up" : "chevron-down"} size=${18} />
+                </button>
+                <div className="money-head-bar__title">${title || "План"}</div>
+                <div className="money-head-bar__actions">
+                  ${editingTitle ? html`
+                    <button type="button" className="icon-button money-tab-editor__apply" onClick=${saveTitle} disabled=${saving || !title.trim() || !titleDirty}>✓</button>
+                    <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelTitle} disabled=${saving}>×</button>
+                  ` : html`
+                    <button type="button" className="icon-button money-row__edit" onClick=${startEditTitle} disabled=${saving} aria-label="Редактировать план">
+                      <${AppIcon} name="edit" size=${18} />
+                    </button>
+                  `}
+                  <button
+                    type="button"
+                    className="icon-button money-row__delete"
+                    onClick=${() => setConfirmDelete({ type: "tab", label: "план" })}
+                    disabled=${saving}
+                    aria-label="Удалить план"
+                  >
+                    <${AppIcon} name="trash" size=${18} />
+                  </button>
+                </div>
+              </div>
+              ${editingTitle ? html`
+                <input
+                  className=${`money-mini-head__title${titleError ? " is-invalid" : ""}${titleShake ? " is-shake" : ""}`}
+                  type="text"
+                  value=${title}
+                  onInput=${(event) => {
+                    setTitle(event.target.value);
+                    if (event.target.value.trim()) {
+                      setTitleError("");
+                    }
+                  }}
+                  placeholder="Название плана"
+                  disabled=${saving}
+                />
+              ` : null}
+              ${titleError ? html`<div className="field-error">${titleError}</div>` : null}
+              <div className="money-group__summary-line">
+                <div className="money-plan-total">Итого: ${formatMoney(total)}</div>
+                <div className="money-group__count">${groupsCount} дел</div>
+              </div>
+            </div>
+          </div>
+        ` : null}
+
+        <div className="money-tabs money-tabs--stack">
+          ${visibleTabs.map((item) => html`
             <button
               key=${item.id}
               type="button"
-              className=${`money-tabs__item${activeTabId === item.id ? " is-active" : ""}`}
+              className="money-tabs__item money-tabs__item--collapsed"
               onClick=${() => onSelectTab(item.id)}
               disabled=${saving}
             >${item.title}</button>
@@ -3417,84 +3842,134 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                   type="text"
                   value=${draftTitle}
                   onInput=${(event) => setDraftTitle(event.target.value)}
-                  placeholder="Название вкладки"
+                  placeholder="РќР°Р·РІР°РЅРёРµ РІРєР»Р°РґРєРё"
                   disabled=${saving}
                 />
-                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
-                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
+                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>вњ“</button>
+                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>Г—</button>
               </div>
             `
-            : html`<button type="button" className="money-tab-create" onClick=${startCreate} disabled=${saving}>+</button>`}
+            : html`
+              <button type="button" className="money-tab-create" onClick=${startCreate} disabled=${saving} aria-label="РЎРѕР·РґР°С‚СЊ РїР»Р°РЅ">
+                <${AppIcon} name="plus" size=${18} />
+              </button>
+            `}
         </div>
 
-        <div className="money-mini-head">
-          <div className="money-mini-head__plan">
-            <input
-              className=${`money-mini-head__title${titleError ? " is-invalid" : ""}${titleShake ? " is-shake" : ""}`}
-              type="text"
-              value=${title}
-              onInput=${(event) => {
-                setTitle(event.target.value);
-                if (event.target.value.trim()) {
-                  setTitleError("");
-                }
-              }}
-              placeholder="Название плана"
-              disabled=${saving}
-            />
-            ${titleError ? html`<div className="field-error">${titleError}</div>` : null}
-            <div className="money-plan-total">Итого: ${formatMoney(total)}</div>
+        ${!tab ? html`
+          <div className="empty-state empty-state--soft money-empty">
+            <p>${creating ? "Введите название первого плана." : "Планов пока нет. Создайте первый по кнопке плюс."}</p>
           </div>
-          <div className="money-mini-head__actions">
-            <button type="button" className="icon-button money-tab-editor__apply" onClick=${saveTitle} disabled=${saving || !title.trim() || !titleDirty}>✓</button>
-            <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelTitle} disabled=${saving || !titleDirty}>×</button>
-            <button type="button" className="icon-button money-row__delete" onClick=${() => onDelete(tab.id)} disabled=${saving}>⌫</button>
-          </div>
-        </div>
+        ` : html`
+          ${editingTitle && isPlanOpen ? html`
+            <div className="money-mini-footer money-mini-footer--top">
+              ${newGroupDraft ? html`
+                <div className="money-inline-create">
+                  <input
+                    type="text"
+                    value=${newGroupDraft.title}
+                    onInput=${(event) => setNewGroupDraft((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="Название дела"
+                    disabled=${saving}
+                  />
+                  <button type="button" className="icon-button money-tab-editor__apply" onClick=${saveNewGroup} disabled=${saving || !newGroupDraft.title.trim()}>✓</button>
+                  <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelNewGroup} disabled=${saving}>×</button>
+                </div>
+              ` : html`
+                <button type="button" className="button button--ghost" onClick=${startNewGroup} disabled=${saving}>Добавить дело</button>
+              `}
+            </div>
+          ` : null}
+        `}
 
-        <div className="money-table money-table--minimal">
-          ${groups.length ? groups.map((group) => html`
-            <section key=${group.id} className="money-group">
+        ${tab && isPlanOpen ? html`
+          <div className="money-table money-table--minimal">
+          ${tab && isPlanOpen && groups.length ? groups.map((group) => html`
+            ${(() => {
+              const isEditingGroup = Boolean(editingGroups[group.id]);
+              const isExpanded = isEditingGroup || Boolean(expandedGroups[group.id]);
+              const itemCount = (group.items || []).length;
+              const newItemDraft = newItemDrafts[group.id] || null;
+              return html`
+            <section key=${group.id} className=${`money-group${isExpanded ? " is-expanded" : ""}`}>
               <div className="money-group__head">
                 <div className="money-group__title-wrap">
-                  ${editingGroups[group.id]
-                    ? html`
-                      <input
-                        className="money-group__title"
-                        type="text"
-                        value=${group.title}
-                        onInput=${(event) => updateGroup(group.id, { title: event.target.value })}
-                        placeholder="Название дела"
-                        disabled=${saving}
-                      />
-                    `
-                    : html`<div className="money-group__title-text">${group.title || "Без названия"}</div>`}
-                  <div className="money-group__total">${formatMoney(groupTotal(group))}</div>
-                </div>
-                <div className="money-group__actions">
-                  ${editingGroups[group.id]
-                    ? html`
-                      <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => saveGroup(group.id)} disabled=${saving || !group.title.trim() || !isGroupDirty(group)}>✓</button>
-                      <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelGroupEdit(group.id)} disabled=${saving}>×</button>
-                    `
-                    : html`
-                      <button
-                        type="button"
-                        className="icon-button money-row__edit"
-                        onClick=${() => startEditGroup(group.id)}
-                        disabled=${saving}
-                      >✎</button>
-                    `}
-                  <button type="button" className="icon-button money-row__delete" onClick=${() => removeGroup(group.id)} disabled=${saving || groups.length <= 1}>⌫</button>
+                  <div className="money-head-bar money-head-bar--group">
+                    <button
+                      type="button"
+                      title=${isExpanded ? "Свернуть" : "Развернуть"}
+                      className="icon-button money-row__toggle"
+                      onClick=${() => toggleGroupExpanded(group.id)}
+                      disabled=${saving}
+                      aria-label=${isExpanded ? "Свернуть дело" : "Развернуть дело"}
+                    >
+                      <${AppIcon} name=${isExpanded ? "chevron-up" : "chevron-down"} size=${18} />
+                    </button>
+                    <div className="money-head-bar__title">${group.title || "Дело"}</div>
+                    <div className="money-head-bar__actions">
+                      ${isEditingGroup
+                        ? html`
+                          <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => saveGroup(group.id)} disabled=${saving || !group.title.trim() || !isGroupDirty(group)}>✓</button>
+                          <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelGroupEdit(group.id)} disabled=${saving}>×</button>
+                          <button
+                            type="button"
+                            className="icon-button money-row__delete"
+                            onClick=${() => setConfirmDelete({ type: "group", groupId: group.id, label: "дело" })}
+                            disabled=${saving}
+                            aria-label="Удалить дело"
+                          >
+                            <${AppIcon} name="trash" size=${18} />
+                          </button>
+                        `
+                        : html`
+                          <button
+                            type="button"
+                            className="icon-button money-row__edit"
+                            onClick=${() => startEditGroup(group.id)}
+                            disabled=${saving}
+                            aria-label="Редактировать дело"
+                          >
+                            <${AppIcon} name="edit" size=${18} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button money-row__delete"
+                            onClick=${() => setConfirmDelete({ type: "group", groupId: group.id, label: "дело" })}
+                            disabled=${saving}
+                            aria-label="Удалить дело"
+                          >
+                            <${AppIcon} name="trash" size=${18} />
+                          </button>
+                        `}
+                    </div>
+                  </div>
+                  <div className="money-group__summary-line">
+                    <div className="money-group__total">${formatMoney(groupTotal(group))}</div>
+                    <div className="money-group__count">${itemCount} подп.</div>
+                  </div>
                 </div>
               </div>
 
-              <div className="money-group__items">
+              ${isExpanded ? html`<div className="money-group__items">
+                ${isEditingGroup ? html`
+                  <label className="money-cell">
+                    <span className="money-cell__label">Название дела</span>
+                    <input
+                      className="money-group__title"
+                      type="text"
+                      value=${group.title}
+                      onInput=${(event) => updateGroup(group.id, { title: event.target.value })}
+                      placeholder="Название дела"
+                      disabled=${saving}
+                    />
+                  </label>
+                ` : null}
+
                 ${group.items.length ? sortMoneySubitems(group.items).map((item) => {
                   const isEditing = Boolean(editingItems[item.id]);
                   const draft = itemDrafts[item.id] || item;
                   const itemDirty = isSubitemDirty(item, draft);
-                  return isEditing && editingGroups[group.id] ? html`
+                  return isEditing && isEditingGroup ? html`
                     <div key=${item.id} className="money-row money-row--editing">
                       <div className="money-row__edit-head">
                         <strong>${draft.name || "Подпункт"}</strong>
@@ -3526,8 +4001,9 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                       <label className="money-cell">
                         <span className="money-cell__label">Стоимость</span>
                         <input
-                          type="text"
+                          type="number"
                           inputMode="decimal"
+                          step="0.01"
                           value=${draft.cost}
                           onInput=${(event) => updateDraftSubitem(item.id, { cost: event.target.value })}
                           placeholder="0"
@@ -3538,12 +4014,12 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                   ` : html`
                     <div key=${item.id} className=${`money-row money-row--compact${item.completed ? " is-done" : ""}`}>
                       <div className="money-row__summary">
-                        <strong>${item.name || "Без названия"}</strong>
+                        <strong>${item.name}</strong>
                         ${item.completed ? html`<span className="money-row__badge">Сделано</span>` : null}
                       </div>
                       <div className="money-row__amount">${formatMoney(parseMoneyInput(item.cost))}</div>
-                      ${editingGroups[group.id] ? html`
-                        <div className="money-row__side">
+                      <div className="money-row__side">
+                        ${isEditingGroup ? html`
                           ${item.isNew ? null : html`
                             <button
                               type="button"
@@ -3552,31 +4028,97 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                               disabled=${saving}
                             >${item.completed ? "Вернуть" : "Сделано"}</button>
                           `}
-                          <button type="button" className="icon-button money-row__edit" onClick=${() => startEditSubitem(group.id, item)} disabled=${saving}>✎</button>
-                          <button type="button" className="icon-button money-row__delete" onClick=${() => removeSubitem(group.id, item.id)} disabled=${saving || group.items.length <= 1}>⌫</button>
-                        </div>
-                      ` : html`<div></div>`}
+                          <button type="button" className="icon-button money-row__edit" onClick=${() => startEditSubitem(group.id, item)} disabled=${saving} aria-label="Редактировать подпункт">
+                            <${AppIcon} name="edit" size=${18} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button money-row__delete"
+                            onClick=${() => setConfirmDelete({ type: "item", groupId: group.id, itemId: item.id, label: "подпункт" })}
+                            disabled=${saving}
+                            aria-label="Удалить подпункт"
+                          >
+                            <${AppIcon} name="trash" size=${18} />
+                          </button>
+                        ` : html`
+                          <button type="button" className="icon-button money-row__edit" onClick=${() => startEditSubitem(group.id, item)} disabled=${saving} aria-label="Редактировать подпункт">
+                            <${AppIcon} name="edit" size=${18} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button money-row__delete"
+                            onClick=${() => setConfirmDelete({ type: "item", groupId: group.id, itemId: item.id, label: "подпункт" })}
+                            disabled=${saving}
+                            aria-label="Удалить подпункт"
+                          >
+                            <${AppIcon} name="trash" size=${18} />
+                          </button>
+                        `}
+                      </div>
                     </div>
                   `;
-                }) : null}
-              </div>
+                }) : html`
+                  <div className="money-row__meta">Подделов пока нет.</div>
+                `}
 
-              ${editingGroups[group.id] ? html`
+                ${isEditingGroup && newItemDraft ? html`
+                  <div className="money-row money-row--editing">
+                    <div className="money-row__edit-head">
+                      <strong>Новый подпункт</strong>
+                      <div className="money-row__edit-actions">
+                        <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => saveNewSubitem(group.id)} disabled=${saving || (!String(newItemDraft.name || "").trim() && !String(newItemDraft.cost || "").trim())}>✓</button>
+                        <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelNewSubitem(group.id)} disabled=${saving}>×</button>
+                      </div>
+                    </div>
+                    <label className="money-cell">
+                      <span className="money-cell__label">Подпункт</span>
+                      <input
+                        type="text"
+                        value=${newItemDraft.name}
+                        onInput=${(event) => updateNewSubitemDraft(group.id, { name: event.target.value })}
+                        placeholder="Название подпункта"
+                        disabled=${saving}
+                      />
+                    </label>
+                    <label className="money-cell">
+                      <span className="money-cell__label">Стоимость</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        value=${newItemDraft.cost}
+                        onInput=${(event) => updateNewSubitemDraft(group.id, { cost: event.target.value })}
+                        placeholder="0"
+                        disabled=${saving}
+                      />
+                    </label>
+                  </div>
+                ` : null}
+              </div>` : null}
+
+              ${isEditingGroup ? html`
                 <div className="money-group__footer">
-                  <button type="button" className="button button--ghost" onClick=${() => addSubitem(group.id)} disabled=${saving}>Добавить подпункт</button>
+                  ${newItemDraft ? null : html`
+                    <button type="button" className="button button--ghost" onClick=${() => startNewSubitem(group.id)} disabled=${saving}>Добавить подпункт</button>
+                  `}
                 </div>
               ` : null}
             </section>
+          `; })()}
           `) : html`
             <div className="empty-state empty-state--soft money-empty">
-              <p>Добавьте первое дело внутри плана.</p>
+              <p>${tab ? "Список дел пока пуст. Нажмите редактировать и добавьте дело." : "Планов пока нет."}</p>
             </div>
           `}
-        </div>
-
-        <div className="money-mini-footer">
-          <button type="button" className="button button--ghost" onClick=${addGroup} disabled=${saving}>Добавить дело</button>
-        </div>
+          </div>
+        ` : null}
+        <${ConfirmDialog}
+          open=${Boolean(confirmDelete)}
+          saving=${saving}
+          message=${`Вы уверены, что хотите удалить ${confirmDelete?.label || "запись"}?`}
+          onCancel=${() => setConfirmDelete(null)}
+          onConfirm=${confirmDeleteAction}
+        />
       </section>
     </main>
   `;
@@ -3585,8 +4127,31 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
 createRoot(document.getElementById("app")).render(html`<${App} />`);
 
 if ("serviceWorker" in navigator) {
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js").then((registration) => {
+      registration.update().catch(() => {});
+
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
+
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        if (!worker) return;
+        worker.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) {
+            worker.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    }).catch(() => {});
   });
 }
 
