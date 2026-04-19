@@ -1357,7 +1357,10 @@ function App() {
     fetchStateSlices(slicesToFetch)
       .then((patch) => {
         if (!alive) return;
-        setState((current) => mergeStatePatch(current, patch));
+        setState((current) => mergeStatePatch(current, {
+          ...patch,
+          view: current.view,
+        }));
         setLoadedSlices((current) => ({
           ...current,
           ...Object.fromEntries(slicesToFetch.map((slice) => [slice, true])),
@@ -3048,4 +3051,10 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
 }
 
 createRoot(document.getElementById("app")).render(html`<${App} />`);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 
