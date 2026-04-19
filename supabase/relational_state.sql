@@ -52,11 +52,15 @@ create table if not exists public.post_comments (
   post_id text not null references public.posts(id) on delete cascade,
   author text not null default '',
   text text not null default '',
+  parent_id text not null default '',
   created_at text not null default '',
   created_by text not null default '',
   updated_at text not null default '',
   updated_by text not null default ''
 );
+
+alter table public.post_comments
+  add column if not exists parent_id text not null default '';
 
 create table if not exists public.money_tabs (
   id text primary key,

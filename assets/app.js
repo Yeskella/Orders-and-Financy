@@ -31,24 +31,127 @@ const DATA_SLICE_POSTS = "posts";
 const DATA_SLICE_MONEY = "money";
 
 const FIXED_NAV_ITEMS = [
-  { id: "planner", label: "Планировщик трат" },
-  { id: "plans", label: "Лента" },
-  { id: "money", label: "Планы (деньги)" },
-  { id: "dogs", label: "Собаки" },
-  { id: "calendar", label: "Календарь" },
+  { id: "planner", label: "Траты", title: "Траты", icon: "planner" },
+  { id: "money", label: "Планы", title: "Планы", icon: "money" },
+  { id: "plans", label: "Лента", title: "Лента", icon: "feed" },
+  { id: "calendar", label: "Календарь", title: "Календарь", icon: "calendar" },
 ];
-
 const THEMES = [
   { id: "light", label: "Светлая" },
   { id: "paper", label: "Мягкая" },
-  { id: "dark", label: "Тёмная" },
+  { id: "dark", label: "Темная" },
 ];
-
-const EMOJIS = ["😊", "🙂", "💡", "📅", "🐶", "💸", "✨", "🔥", "📌", "🤍"];
+const EMOJIS = ["😀", "😍", "🔥", "👍", "🎉", "❤️", "😅", "🙏", "🤝", "✨"];
 const LOCAL_USERS = {
   Lesha: "vandal2020",
   Lera: "vandal2021",
 };
+
+const AUTHOR_THEME = {
+  Lesha: { bg: "#1eb8c9", tint: "#dff7fa" },
+  Lera: { bg: "#5b8def", tint: "#e6efff" },
+};
+
+function AppIcon({ name, active = false, size = 24 }) {
+  const stroke = active ? "#2f6df6" : "currentColor";
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke,
+    strokeWidth: "1.9",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+  };
+
+  if (name === "planner") {
+    return html`
+      <svg ...${common}>
+        <path d="M7 4.5h10a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2Z" />
+        <path d="M8.5 8.5h7" />
+        <path d="M8.5 12h7" />
+        <path d="M8.5 15.5H13" />
+      </svg>
+    `;
+  }
+
+  if (name === "money") {
+    return html`
+      <svg ...${common}>
+        <path d="M6 5h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+        <path d="M4 9h16" />
+        <path d="M8 13h3" />
+        <path d="M8 16h5" />
+      </svg>
+    `;
+  }
+
+  if (name === "calendar") {
+    return html`
+      <svg ...${common}>
+        <path d="M7 4v3" />
+        <path d="M17 4v3" />
+        <path d="M4 9h16" />
+        <rect x="4" y="5.5" width="16" height="14" rx="2" />
+        <path d="M8 13h.01" />
+        <path d="M12 13h.01" />
+        <path d="M16 13h.01" />
+        <path d="M8 17h.01" />
+        <path d="M12 17h.01" />
+      </svg>
+    `;
+  }
+
+  if (name === "palette") {
+    return html`
+      <svg ...${common}>
+        <circle cx="12" cy="12" r="7.5" />
+        <path d="M8.5 10h.01" />
+        <path d="M12 8.5h.01" />
+        <path d="M15.5 10h.01" />
+        <path d="M14.5 15.5c0-1.2.8-2 2-2h1" />
+      </svg>
+    `;
+  }
+
+  if (name === "logout") {
+    return html`
+      <svg ...${common}>
+        <path d="M10 6H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3" />
+        <path d="M14 16l4-4-4-4" />
+        <path d="M18 12H9" />
+      </svg>
+    `;
+  }
+
+  if (name === "comment") {
+    return html`
+      <svg ...${common}>
+        <path d="M7 18.5h9a3 3 0 0 0 3-3v-6a3 3 0 0 0-3-3H8a3 3 0 0 0-3 3v6l-1.5 3Z" />
+      </svg>
+    `;
+  }
+
+  if (name === "settings") {
+    return html`
+      <svg ...${common}>
+        <circle cx="12" cy="12" r="2.2" />
+        <path d="M19 12a7 7 0 0 0-.08-1l2.02-1.57-1.9-3.3-2.39.8a7.1 7.1 0 0 0-1.73-1L14.5 3h-5l-.42 2.93a7.1 7.1 0 0 0-1.73 1l-2.39-.8-1.9 3.3L5.08 11a7 7 0 0 0 0 2l-2.02 1.57 1.9 3.3 2.39-.8a7.1 7.1 0 0 0 1.73 1L9.5 21h5l.42-2.93a7.1 7.1 0 0 0 1.73-1l2.39.8 1.9-3.3L18.92 13c.05-.33.08-.66.08-1Z" />
+      </svg>
+    `;
+  }
+
+  return html`
+    <svg ...${common}>
+      <path d="M4.5 11.5 12 5l7.5 6.5" />
+      <path d="M6.5 10.5v8h11v-8" />
+    </svg>
+  `;
+}
+
+const getAuthorTheme = (author) => AUTHOR_THEME[author] || { bg: "#28aebf", tint: "#def6f7" };
 
 const htmlEscape = (value) => String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -185,6 +288,7 @@ const routeToView = (hash) => {
 };
 
 const validateView = (view, customTabs) => {
+  if (view === "dogs") return "planner";
   if (isFixedView(view)) return view;
   if (isMoneyView(view) && customTabs.some((tab) => tab.id === moneyIdFromView(view))) return "money";
   if (customTabs.length) return "planner";
@@ -211,6 +315,42 @@ const formatTime = (value) => {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+};
+
+const MOSCOW_TIME_ZONE = "Europe/Moscow";
+
+const formatMoscowDayKey = (value) => new Intl.DateTimeFormat("en-CA", {
+  timeZone: MOSCOW_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date(value));
+
+const formatClockTimeMsk = (value) => new Intl.DateTimeFormat("ru-RU", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: MOSCOW_TIME_ZONE,
+}).format(new Date(value));
+
+const formatFeedTimeMsk = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  if (formatMoscowDayKey(date) === formatMoscowDayKey(now)) {
+    return "сегодня " + formatClockTimeMsk(value);
+  }
+  if (formatMoscowDayKey(date) === formatMoscowDayKey(yesterday)) {
+    return "вчера " + formatClockTimeMsk(value);
+  }
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: MOSCOW_TIME_ZONE,
+  }).format(date).replace(" г.", "");
 };
 
 const compareDesc = (left, right) => new Date(right).getTime() - new Date(left).getTime();
@@ -241,6 +381,29 @@ const initials = (value) => {
   return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 };
 
+const getImageLabel = (image, fallback = "Изображение") => {
+  if (!image) return fallback;
+  if (image.fileName) return image.fileName;
+  if (image.path) return image.path.split("/").pop() || fallback;
+  if (image.publicUrl) {
+    try {
+      const url = new URL(image.publicUrl);
+      return decodeURIComponent(url.pathname.split("/").pop() || fallback);
+    } catch (_) {
+      return fallback;
+    }
+  }
+  return fallback;
+};
+
+const sameImageRef = (left, right) => {
+  if (!left || !right) return false;
+  if (left.path && right.path) return left.path === right.path;
+  if (left.publicUrl && right.publicUrl) return left.publicUrl === right.publicUrl;
+  if (left.fileName && right.fileName) return left.fileName === right.fileName;
+  return false;
+};
+
 const normalizeEntry = (entry, prefix) => ({
   id: entry?.id || uid(prefix),
   date: entry?.date || "",
@@ -256,6 +419,7 @@ const normalizeComment = (comment) => ({
   id: comment?.id || uid("comment"),
   author: comment?.author || comment?.createdBy || "Lesha",
   text: comment?.text || "",
+  parentId: comment?.parentId || "",
   createdAt: comment?.createdAt || nowISO(),
   createdBy: comment?.createdBy || comment?.author || "",
   updatedAt: comment?.updatedAt || comment?.createdAt || "",
@@ -328,7 +492,7 @@ const normalizeMoneyGroup = (group) => ({
 
 const normalizeMoneyTab = (tab) => ({
   id: tab?.id || uid("money-tab"),
-  title: tab?.title || "Планы (деньги)",
+  title: tab?.title || "Планы",
   groups: Array.isArray(tab?.groups)
     ? tab.groups.map((group) => normalizeMoneyGroup(group))
     : (Array.isArray(tab?.rows) && tab.rows.length
@@ -498,14 +662,12 @@ const getRequiredSlicesForView = (view) => {
   switch (view) {
     case "planner":
       return [DATA_SLICE_META, DATA_SLICE_PLANNER];
-    case "dogs":
-      return [DATA_SLICE_META, DATA_SLICE_DOGS];
     case "plans":
       return [DATA_SLICE_META, DATA_SLICE_POSTS];
     case "money":
       return [DATA_SLICE_META, DATA_SLICE_MONEY];
     case "calendar":
-      return [DATA_SLICE_META, DATA_SLICE_PLANNER, DATA_SLICE_DOGS, DATA_SLICE_POSTS];
+      return [DATA_SLICE_META, DATA_SLICE_PLANNER, DATA_SLICE_POSTS];
     default:
       return [DATA_SLICE_META];
   }
@@ -540,7 +702,11 @@ const hasMeaningfulMeta = (meta) => Boolean(
 );
 
 const mergeStatePatch = (current, patch = {}) => normalizeState({
-  settings: hasOwn(patch, "settings") ? { ...current.settings, ...patch.settings } : current.settings,
+  settings: hasOwn(patch, "settings") ? {
+    ...current.settings,
+    ...patch.settings,
+    theme: current.settings?.theme || getStoredTheme(),
+  } : current.settings,
   view: hasOwn(patch, "view") ? patch.view : current.view,
   calendarMonth: hasOwn(patch, "calendarMonth") ? patch.calendarMonth : current.calendarMonth,
   plannerSelectedDate: hasOwn(patch, "plannerSelectedDate") ? patch.plannerSelectedDate : current.plannerSelectedDate,
@@ -610,6 +776,7 @@ const fetchPostsSlice = async (store) => {
       id: comment.id,
       author: comment.author || comment.created_by || "Lesha",
       text: comment.text || "",
+      parentId: comment.parent_id || "",
       createdAt: comment.created_at || "",
       createdBy: comment.created_by || comment.author || "",
       updatedAt: comment.updated_at || comment.created_at || "",
@@ -831,6 +998,7 @@ const saveFullState = async (payload, providedStore = null) => {
     post_id: post.id,
     author: comment.author || "",
     text: comment.text || "",
+    parent_id: comment.parentId || "",
     created_at: comment.createdAt || "",
     created_by: comment.createdBy || "",
     updated_at: comment.updatedAt || "",
@@ -1002,6 +1170,7 @@ const savePostsSlice = async (store, posts) => {
     post_id: post.id,
     author: comment.author || "",
     text: comment.text || "",
+    parent_id: comment.parentId || "",
     created_at: comment.createdAt || "",
     created_by: comment.createdBy || "",
     updated_at: comment.updatedAt || "",
@@ -1204,19 +1373,26 @@ const collectEventsForDate = (state, date) => {
   const items = [];
   state.plannerEntries.forEach((entry) => {
     if (dateMatchesEntry(entry, date)) {
-      items.push({ id: `${entry.id}-${date}`, type: "planner", label: "Планировщик трат", text: entry.text });
-    }
-  });
-  state.dogsEntries.forEach((entry) => {
-    if (dateMatchesEntry(entry, date)) {
-      items.push({ id: `${entry.id}-${date}`, type: "dogs", label: "Собаки", text: entry.text });
+      items.push({
+        id: `${entry.id}-${date}`,
+        type: "planner",
+        label: "Траты",
+        text: entry.text,
+        entry,
+      });
     }
   });
   state.posts.filter((post) => !post.archived).forEach((post) => {
     const start = post.startDate || post.createdAt.slice(0, 10);
     const end = post.endDate || start;
     if (inRange(date, start, end)) {
-      items.push({ id: `${post.id}-${date}`, type: "post", label: "Лента", text: post.text || "Публикация" });
+      items.push({
+        id: `${post.id}-${date}`,
+        type: "post",
+        label: "Лента",
+        text: post.text || "Публикация",
+        post,
+      });
     }
   });
   return items;
@@ -1261,11 +1437,12 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [authSaving, setAuthSaving] = useState(false);
   const loadedSlicesRef = useRef({});
 
   useEffect(() => {
-    document.title = "Планировщик";
+    document.title = "My Family Planner";
   }, []);
 
   useEffect(() => {
@@ -1407,12 +1584,16 @@ function App() {
     setStoredView(nextView);
     window.history.replaceState(null, "", toHash(nextView));
     setViewRefreshToken((current) => current + 1);
+    setSettingsOpen(false);
     setState((current) => ({ ...current, view: nextView }));
   };
 
   const selectMoneyTab = (tabId) => {
+    setStoredView("money");
+    window.history.replaceState(null, "", toHash("money"));
     setViewRefreshToken((current) => current + 1);
-    applyLocal((current) => ({ ...current, moneyActiveTabId: tabId }));
+    setSettingsOpen(false);
+    setState((current) => normalizeState({ ...current, view: "money", moneyActiveTabId: tabId }));
   };
 
   const changeTheme = (theme) => {
@@ -1427,7 +1608,7 @@ function App() {
     setThemeMenuOpen(false);
   };
 
-  const persist = async (nextState, message = "Сохранено") => {
+  const persist = async (nextState, message = "Изменения сохранены") => {
     if (saving) return false;
     setSaving(true);
     try {
@@ -1485,6 +1666,7 @@ function App() {
     clearStoredSession();
     setSession(null);
     setThemeMenuOpen(false);
+    setSettingsOpen(false);
   };
 
   const handleCreatePost = async (draft) => {
@@ -1568,7 +1750,56 @@ function App() {
 
       await saveStateSlices(state, payloadToSave);
       setState(nextState);
-      setToast({ tone: "success", text: "Пост удалён" });
+      setToast({ tone: "success", text: "Пост удален" });
+      return true;
+    } catch (error) {
+      setToast({ tone: "danger", text: error.message });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditPost = async (postId, draft) => {
+    if (saving) return false;
+    const post = state.posts.find((item) => item.id === postId);
+    if (!post) return false;
+
+    setSaving(true);
+    try {
+      const keptImages = Array.isArray(draft.existingImages) ? draft.existingImages : [];
+      const removedImages = (post.images || []).filter((image) => !keptImages.some((entry) => sameImageRef(entry, image)));
+      const uploadedImages = draft.files?.length ? await uploadImages(draft.files) : [];
+      if (removedImages.length) {
+        await deleteImages(removedImages);
+      }
+
+      const timestamp = nowISO();
+      const nextPost = normalizePost({
+        ...post,
+        text: draft.text.trim(),
+        images: [...keptImages, ...uploadedImages],
+        pinned: draft.pinned,
+        updatedAt: timestamp,
+        updatedBy: session.role,
+        startDate: draft.startDate,
+        endDate: draft.endDate,
+      });
+
+      const nextState = normalizeState({
+        ...state,
+        posts: state.posts.map((item) => (item.id === postId ? nextPost : item)),
+        settings: {
+          ...state.settings,
+          theme: getStoredTheme(),
+          lastSyncedAt: timestamp,
+          lastUpdatedBy: session.role,
+        },
+      });
+
+      await saveStateSlices(state, nextState);
+      setState(nextState);
+      setToast({ tone: "success", text: "Пост обновлен" });
       return true;
     } catch (error) {
       setToast({ tone: "danger", text: error.message });
@@ -1583,7 +1814,7 @@ function App() {
     const timestamp = nowISO();
     const nextTab = normalizeMoneyTab({
       id: uid("money"),
-      title: title?.trim() || (state.customTabs.length ? `Новый план ${state.customTabs.length + 1}` : "Новый план"),
+      title: title?.trim() || (state.customTabs.length ? `План ${state.customTabs.length + 1}` : "План"),
       groups: [getDefaultMoneyGroup(session.role)],
       createdAt: timestamp,
       createdBy: session.role,
@@ -1606,7 +1837,7 @@ function App() {
       ...state,
       moneyActiveTabId: tabId,
       customTabs: state.customTabs.map((tab) => (tab.id === tabId ? nextTab : tab)),
-    }, "План сохранён");
+    }, "План сохранен");
     return saved;
   };
 
@@ -1634,7 +1865,7 @@ function App() {
     page = html`
       <${NotePage}
         kind="planner"
-        title="Планировщик трат"
+        title="Траты"
         state=${state}
         onSave=${persist}
         onLocalChange=${applyLocal}
@@ -1649,19 +1880,8 @@ function App() {
         onSave=${persist}
         onLocalChange=${applyLocal}
         onCreatePost=${handleCreatePost}
+        onEditPost=${handleEditPost}
         onDeletePost=${handleDeletePost}
-        saving=${saving}
-        actor=${session?.role || ""}
-      />
-    `;
-  } else if (!pageLoading && state.view === "dogs") {
-    page = html`
-      <${NotePage}
-        kind="dogs"
-        title="Собаки"
-        state=${state}
-        onSave=${persist}
-        onLocalChange=${applyLocal}
         saving=${saving}
         actor=${session?.role || ""}
       />
@@ -1691,8 +1911,8 @@ function App() {
     page = html`
       <main className="page">
         <section className="panel empty-money">
-          <h2>Денежных вкладок пока нет</h2>
-          <p>Создайте первую вкладку и собирайте таблицу из названий и сумм в одном месте.</p>
+          <h2>Планов пока нет</h2>
+          <p>Создайте первую вкладку и собирайте там дела, суммы и подзадачи.</p>
           <button type="button" className="button button--blue" onClick=${() => createMoneyTab("Новый план")} disabled=${saving}>Добавить вкладку</button>
         </section>
       </main>
@@ -1707,99 +1927,6 @@ function App() {
       </div>
     `;
   }
-
-  const submitComment = (post) => {
-    const text = String(commentDrafts[post.id] || "").trim();
-    if (!text || saving) return;
-    const timestamp = nowISO();
-    onSave({
-      ...state,
-      posts: state.posts.map((item) => (item.id === post.id ? normalizePost({
-        ...item,
-        comments: [
-          ...(item.comments || []),
-          normalizeComment({
-            id: uid("comment"),
-            author: actor || "Lesha",
-            text,
-            createdAt: timestamp,
-            createdBy: actor || "Lesha",
-            updatedAt: timestamp,
-            updatedBy: actor || "Lesha",
-          }),
-        ],
-        updatedAt: timestamp,
-        updatedBy: actor || item.updatedBy || item.author,
-      }) : item)),
-    }, "Комментарий добавлен");
-    setCommentDrafts((current) => ({ ...current, [post.id]: "" }));
-    setExpandedComments((current) => ({ ...current, [post.id]: true }));
-  };
-
-  const persistPostComments = (postId, updater, message) => {
-    const timestamp = nowISO();
-    onSave({
-      ...state,
-      posts: state.posts.map((post) => (post.id === postId ? normalizePost({
-        ...post,
-        comments: updater(post.comments || [], timestamp),
-        updatedAt: timestamp,
-        updatedBy: actor || post.updatedBy || post.author,
-      }) : post)),
-    }, message);
-  };
-
-  const addComment = (postId) => {
-    const text = String(commentDrafts[postId] || "").trim();
-    if (!text || saving) return;
-    persistPostComments(postId, (comments, timestamp) => ([
-      ...comments,
-      normalizeComment({
-        id: uid("comment"),
-        author: actor || "Lesha",
-        text,
-        createdAt: timestamp,
-        createdBy: actor || "Lesha",
-        updatedAt: timestamp,
-        updatedBy: actor || "Lesha",
-      }),
-    ]), "Комментарий добавлен");
-    setCommentDrafts((current) => ({ ...current, [postId]: "" }));
-    setExpandedComments((current) => ({ ...current, [postId]: true }));
-  };
-
-  const startEditComment = (postId, comment) => {
-    setCommentMenuKey("");
-    setEditingCommentKey(`${postId}:${comment.id}`);
-    setEditingCommentText(comment.text || "");
-    setExpandedComments((current) => ({ ...current, [postId]: true }));
-  };
-
-  const saveEditedComment = (postId, commentId) => {
-    const text = String(editingCommentText || "").trim();
-    if (!text || saving) return;
-    persistPostComments(postId, (comments, timestamp) => comments.map((comment) => (
-      comment.id === commentId
-        ? normalizeComment({
-          ...comment,
-          text,
-          updatedAt: timestamp,
-          updatedBy: actor || comment.updatedBy || comment.author,
-        })
-        : comment
-    )), "Комментарий обновлён");
-    setEditingCommentKey("");
-    setEditingCommentText("");
-  };
-
-  const removeComment = (postId, commentId) => {
-    setCommentMenuKey("");
-    if (editingCommentKey === `${postId}:${commentId}`) {
-      setEditingCommentKey("");
-      setEditingCommentText("");
-    }
-    persistPostComments(postId, (comments) => comments.filter((comment) => comment.id !== commentId), "Комментарий удалён");
-  };
 
   return html`
     <div className="app-shell">
@@ -1819,11 +1946,13 @@ function App() {
         <div className="topbar-actions">
           <div className="session-chip">
             <strong>${session.role}</strong>
-            <span>${state.settings.lastUpdatedBy ? `последнее обновление: ${state.settings.lastUpdatedBy}` : "рабочая сессия"}</span>
+            <span>${state.settings.lastUpdatedBy ? `Последнее обновление: ${state.settings.lastUpdatedBy}` : "Рабочая сессия"}</span>
           </div>
 
           <div className="theme-menu">
-            <button type="button" className="icon-button" onClick=${() => setThemeMenuOpen((value) => !value)} disabled=${saving}>◐</button>
+            <button type="button" className="icon-button" onClick=${() => setThemeMenuOpen((value) => !value)} disabled=${saving}>
+              <${AppIcon} name="palette" size=${18} />
+            </button>
             ${themeMenuOpen && html`
               <div className="theme-menu__list">
                 ${THEMES.map((theme) => html`
@@ -1838,11 +1967,77 @@ function App() {
             `}
           </div>
 
-          <button type="button" className="button button--ghost" onClick=${handleLogout} disabled=${saving}>Выйти</button>
+          <button type="button" className="button button--ghost topbar-logout" onClick=${handleLogout} disabled=${saving}>
+            <span className="topbar-logout__text">Выйти</span>
+            <span className="topbar-logout__icon"><${AppIcon} name="logout" size=${18} /></span>
+          </button>
         </div>
       </header>
 
       ${page}
+      <nav className="bottom-nav" aria-label="Основная навигация">
+        ${FIXED_NAV_ITEMS.map((item) => html`
+          <button
+            key=${item.id}
+            type="button"
+            className=${`bottom-nav__item${state.view === item.id ? " is-active" : ""}`}
+            onClick=${() => setView(item.id)}
+            disabled=${saving}
+          >
+            <span className="bottom-nav__icon"><${AppIcon} name=${item.icon} active=${state.view === item.id} size=${24} /></span>
+            <span className="bottom-nav__label">${item.label}</span>
+          </button>
+        `)}
+        <button
+          type="button"
+          className=${`bottom-nav__item${settingsOpen ? " is-active" : ""}`}
+          onClick=${() => setSettingsOpen((value) => !value)}
+          disabled=${saving}
+        >
+          <span className="bottom-nav__icon"><${AppIcon} name="settings" active=${settingsOpen} size=${24} /></span>
+          <span className="bottom-nav__label">Настройки</span>
+        </button>
+      </nav>
+
+      ${settingsOpen ? html`
+        <div className="settings-drawer-backdrop" onClick=${() => setSettingsOpen(false)}>
+          <aside className="settings-drawer" onClick=${(event) => event.stopPropagation()}>
+            <div className="settings-drawer__head">
+              <strong>Настройки</strong>
+            </div>
+
+            <section className="settings-drawer__section">
+              <div className="settings-drawer__label">Данные аккаунта</div>
+              <div className="settings-account-card">
+                <strong>${session.role}</strong>
+                <span>${state.settings.lastUpdatedBy ? `Последнее обновление: ${state.settings.lastUpdatedBy}` : "Данных об обновлениях пока нет"}</span>
+              </div>
+            </section>
+
+            <section className="settings-drawer__section">
+              <div className="settings-drawer__label">Тема</div>
+              <div className="settings-theme-list">
+                ${THEMES.map((theme) => html`
+                  <button
+                    key=${theme.id}
+                    type="button"
+                    className=${`theme-option settings-theme-option${state.settings.theme === theme.id ? " is-active" : ""}`}
+                    onClick=${() => changeTheme(theme.id)}
+                    disabled=${saving}
+                  >${theme.label}</button>
+                `)}
+              </div>
+            </section>
+
+            <div className="settings-drawer__footer">
+              <button type="button" className="button button--ghost settings-logout" onClick=${handleLogout} disabled=${saving}>
+                <span className="settings-logout__icon"><${AppIcon} name="logout" size=${18} /></span>
+                <span>Выход</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      ` : null}
       ${toast && html`<div className=${`toast toast--${toast.tone}`}>${toast.text}</div>`}
     </div>
   `;
@@ -1995,7 +2190,7 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                 className="editor-textarea"
                 value=${draft.text}
                 onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
-                placeholder="Запишите план, расходы, напоминания или договорённости"
+                placeholder="Запишите траты, расходы, напоминания или договоренности"
                 disabled=${saving}
               ></textarea>
 
@@ -2022,17 +2217,21 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   `;
 }
 
-function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, saving, actor }) {
+function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDeletePost, saving, actor }) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingPostId, setEditingPostId] = useState("");
   const [menuOpenId, setMenuOpenId] = useState("");
   const [lightbox, setLightbox] = useState(null);
+  const [commentsPostId, setCommentsPostId] = useState("");
   const [commentDrafts, setCommentDrafts] = useState({});
-  const [expandedComments, setExpandedComments] = useState({});
+  const [replyTargets, setReplyTargets] = useState({});
   const [commentMenuKey, setCommentMenuKey] = useState("");
   const [editingCommentKey, setEditingCommentKey] = useState("");
   const [editingCommentText, setEditingCommentText] = useState("");
   const posts = useMemo(() => sortedPosts([...state.posts], state.feedFilters), [state.posts, state.feedFilters]);
   const isArchived = state.feedFilters.mode === "archived";
+  const commentsPost = posts.find((post) => post.id === commentsPostId) || null;
+  const editingPost = state.posts.find((post) => post.id === editingPostId) || null;
 
   const persistPostComments = (postId, updater, message) => {
     const timestamp = nowISO();
@@ -2050,12 +2249,14 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
   const addComment = (postId) => {
     const text = String(commentDrafts[postId] || "").trim();
     if (!text || saving) return;
+    const replyTarget = replyTargets[postId] || null;
     persistPostComments(postId, (comments, timestamp) => ([
       ...comments,
       normalizeComment({
         id: uid("comment"),
         author: actor || "Lesha",
         text,
+        parentId: replyTarget?.id || "",
         createdAt: timestamp,
         createdBy: actor || "Lesha",
         updatedAt: timestamp,
@@ -2063,14 +2264,14 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
       }),
     ]), "Комментарий добавлен");
     setCommentDrafts((current) => ({ ...current, [postId]: "" }));
-    setExpandedComments((current) => ({ ...current, [postId]: true }));
+    setReplyTargets((current) => ({ ...current, [postId]: null }));
   };
 
   const startEditComment = (postId, comment) => {
+    if ((comment.createdBy || comment.author || "") !== (actor || "")) return;
     setCommentMenuKey("");
     setEditingCommentKey(`${postId}:${comment.id}`);
     setEditingCommentText(comment.text || "");
-    setExpandedComments((current) => ({ ...current, [postId]: true }));
   };
 
   const saveEditedComment = (postId, commentId) => {
@@ -2085,7 +2286,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
           updatedBy: actor || comment.updatedBy || comment.author,
         })
         : comment
-    )), "Комментарий обновлён");
+    )), "Комментарий обновлен");
     setEditingCommentKey("");
     setEditingCommentText("");
   };
@@ -2096,7 +2297,37 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
       setEditingCommentKey("");
       setEditingCommentText("");
     }
-    persistPostComments(postId, (comments) => comments.filter((comment) => comment.id !== commentId), "Комментарий удалён");
+    persistPostComments(postId, (comments) => {
+      const idsToRemove = new Set([commentId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        comments.forEach((comment) => {
+          if (comment.parentId && idsToRemove.has(comment.parentId) && !idsToRemove.has(comment.id)) {
+            idsToRemove.add(comment.id);
+            changed = true;
+          }
+        });
+      }
+      return comments.filter((comment) => !idsToRemove.has(comment.id));
+    }, "Комментарий удален");
+  };
+
+  const startReply = (postId, comment) => {
+    setReplyTargets((current) => ({
+      ...current,
+      [postId]: {
+        id: comment.id,
+        author: comment.author || "Пользователь",
+      },
+    }));
+  };
+
+  const closeComments = () => {
+    setCommentsPostId("");
+    setCommentMenuKey("");
+    setEditingCommentKey("");
+    setEditingCommentText("");
   };
 
   useEffect(() => {
@@ -2121,6 +2352,21 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [commentMenuKey]);
 
+  useEffect(() => {
+    if (!commentsPostId) return;
+    if (!state.posts.some((post) => post.id === commentsPostId)) {
+      closeComments();
+    }
+  }, [commentsPostId, state.posts]);
+
+  useEffect(() => {
+    if (!editingPostId) return;
+    if (!state.posts.some((post) => post.id === editingPostId)) {
+      setEditingPostId("");
+      setModalOpen(false);
+    }
+  }, [editingPostId, state.posts]);
+
   const updatePost = (postId, patch, message) => {
     const timestamp = nowISO();
     const nextState = {
@@ -2138,13 +2384,130 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
 
   const deletePost = async (postId) => {
     setMenuOpenId("");
+    if (commentsPostId === postId) {
+      closeComments();
+    }
     await onDeletePost(postId);
   };
 
+  const startEditPost = (postId) => {
+    setMenuOpenId("");
+    setEditingPostId(postId);
+    setModalOpen(true);
+  };
+
+  const closePostModal = () => {
+    setModalOpen(false);
+    setEditingPostId("");
+  };
+
+  const renderCommentThread = (postId, comments, parentId = "", depth = 0) => comments
+    .filter((comment) => (comment.parentId || "") === parentId)
+    .map((comment) => {
+      const key = `${postId}:${comment.id}`;
+      const ownComment = (comment.createdBy || comment.author || "") === (actor || "");
+      const isEditing = editingCommentKey === key;
+      const children = renderCommentThread(postId, comments, comment.id, depth + 1);
+
+      return html`
+        <article key=${comment.id} className=${`sheet-comment${depth ? " is-child" : ""}`}>
+          <div className="sheet-comment__row">
+            <div className=${`comment-avatar${ownComment ? " is-self" : ""}`}>${initials(comment.author)}</div>
+            <div className="sheet-comment__main">
+              <div className="sheet-comment__head">
+                <div className="sheet-comment__author-block">
+                  <strong className="sheet-comment__author">${comment.author}</strong>
+                  <span className="sheet-comment__time">${formatFeedTimeMsk(comment.createdAt || comment.updatedAt)}</span>
+                </div>
+                ${ownComment ? html`
+                  <div className="comment-menu-wrap">
+                    <button
+                      type="button"
+                      className="menu-button comment-menu-button"
+                      onClick=${() => setCommentMenuKey((value) => value === key ? "" : key)}
+                      disabled=${saving}
+                    >⋯</button>
+                    ${commentMenuKey === key ? html`
+                      <div className="post-menu comment-menu">
+                        <button
+                          type="button"
+                          className="post-menu__item"
+                          onClick=${() => startEditComment(postId, comment)}
+                        >
+                          <span className="post-menu__icon">✎</span>
+                          <span className="post-menu__label">Редактировать</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="post-menu__item is-danger"
+                          onClick=${() => removeComment(postId, comment.id)}
+                        >
+                          <span className="post-menu__icon">⌫</span>
+                          <span className="post-menu__label">Удалить</span>
+                        </button>
+                      </div>
+                    ` : null}
+                  </div>
+                ` : null}
+              </div>
+
+              ${isEditing ? html`
+                <div className="comment-edit">
+                  <input
+                    type="text"
+                    value=${editingCommentText}
+                    onInput=${(event) => setEditingCommentText(event.target.value)}
+                    disabled=${saving}
+                  />
+                  <div className="comment-edit__actions">
+                    <button
+                      type="button"
+                      className="button button--blue button--small"
+                      onClick=${() => saveEditedComment(postId, comment.id)}
+                      disabled=${saving || !String(editingCommentText || "").trim()}
+                    >Сохранить</button>
+                    <button
+                      type="button"
+                      className="button button--ghost button--small"
+                      onClick=${() => {
+                        setEditingCommentKey("");
+                        setEditingCommentText("");
+                      }}
+                      disabled=${saving}
+                    >Отмена</button>
+                  </div>
+                </div>
+              ` : html`
+                <div className="sheet-comment__text">${comment.text}</div>
+                <div className="sheet-comment__actions">
+                  <button
+                    type="button"
+                    className="sheet-comment__action"
+                    onClick=${() => startReply(postId, comment)}
+                    disabled=${saving}
+                  >Ответить</button>
+                </div>
+              `}
+
+              ${children.length ? html`<div className="sheet-comment__children">${children}</div>` : null}
+            </div>
+          </div>
+        </article>
+      `;
+    });
+
   return html`
-    <main className="page page--wide">
-      <section className="panel composer-bar">
-        <button type="button" className="create-post create-post--wide" onClick=${() => setModalOpen(true)} disabled=${saving}>
+    <main className="page page--wide feed-mobile-page">
+      <section className="panel composer-bar feed-mobile-composer">
+        <button
+          type="button"
+          className="create-post create-post--wide"
+          onClick=${() => {
+            setEditingPostId("");
+            setModalOpen(true);
+          }}
+          disabled=${saving}
+        >
           <span className="create-post__plus">+</span>
           <span>Создать пост</span>
         </button>
@@ -2163,7 +2526,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
         </div>
       </section>
 
-      <section className="panel feed-board">
+      <section className="panel feed-board feed-mobile-board">
         <div className="feed-board__head">
           <div className="feed-switches">
             <button
@@ -2171,7 +2534,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
               className=${`feed-switch${!isArchived ? " is-active" : ""}`}
               onClick=${() => onLocalChange({ ...state, feedFilters: { ...state.feedFilters, mode: "active" } })}
               disabled=${saving}
-            >Активные</button>
+            >Лента</button>
             <button
               type="button"
               className=${`feed-switch${isArchived ? " is-active" : ""}`}
@@ -2179,18 +2542,30 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
               disabled=${saving}
             >Архив</button>
           </div>
-          <div className="feed-board__meta">${isArchived ? "Архивные публикации" : "Актуальные публикации"}</div>
+          ${isArchived ? html`<div className="feed-board__meta">Архивные публикации</div>` : null}
         </div>
 
         <div className="feed-stack feed-stack--board">
-          ${posts.length ? posts.map((post, index) => html`
-            <article key=${post.id} className=${`post-card post-card--flat${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
-              <div className="post-head">
-                <div>
-                  <div className="post-author">${post.author || "Lesha"}</div>
-                  ${(post.pinned || post.archived) ? html`
-                    <div className="post-meta">${post.pinned ? "Закреплено" : "Архив"}</div>
-                  ` : null}
+          ${posts.length ? posts.map((post, index) => {
+            const postActor = post.updatedBy || post.author || "Lesha";
+            const authorTheme = getAuthorTheme(postActor);
+            return html`
+            <article key=${post.id} className=${`post-card post-card--flat post-card--mobile${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
+              <div className="post-head post-head--mobile">
+                <div className="post-author-block">
+                  <div className="post-avatar" style=${{ background: authorTheme.bg, color: authorTheme.tint }}>
+                    ${initials(postActor)}
+                  </div>
+                  <div className="post-head__time">
+                    <div className="post-author-mobile">${postActor}</div>
+                    <div className="post-time-mobile">${formatFeedTimeMsk(post.createdAt || post.updatedAt)}</div>
+                    ${(post.pinned || post.archived) ? html`
+                      <div className="post-status-line">
+                        ${post.pinned ? html`<span className="post-status-pill">Закреплено</span>` : null}
+                        ${post.archived ? html`<span className="post-status-pill is-archived">Архив</span>` : null}
+                      </div>
+                    ` : null}
+                  </div>
                 </div>
 
                 <div className="post-menu-wrap">
@@ -2200,7 +2575,15 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
                       <button
                         type="button"
                         className="post-menu__item"
-                        onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплён" : "Пост закреплён")}
+                        onClick=${() => startEditPost(post.id)}
+                      >
+                        <span className="post-menu__icon">✎</span>
+                        <span className="post-menu__label">Редактировать</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="post-menu__item"
+                        onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплен" : "Пост закреплен")}
                       >
                         <span className="post-menu__icon">📌</span>
                         <span className="post-menu__label">${post.pinned ? "Открепить" : "Закрепить"}</span>
@@ -2208,13 +2591,13 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
                       <button
                         type="button"
                         className="post-menu__item"
-                        onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращён" : "Пост отправлен в архив")}
+                        onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращен" : "Пост отправлен в архив")}
                       >
-                        <span className="post-menu__icon">🗃</span>
+                        <span className="post-menu__icon">🗂</span>
                         <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
                       </button>
                       <button type="button" className="post-menu__item is-danger" onClick=${() => deletePost(post.id)}>
-                        <span className="post-menu__icon">🗑</span>
+                        <span className="post-menu__icon">⌫</span>
                         <span className="post-menu__label">Удалить</span>
                       </button>
                     </div>
@@ -2222,8 +2605,10 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
                 </div>
               </div>
 
+              ${post.text ? html`<div className="post-text post-text--mobile">${post.text}</div>` : null}
+
               ${post.images?.length ? html`
-                <div className=${`post-gallery gallery-${Math.min(post.images.length, 4)}`}>
+                <div className=${`post-gallery gallery-${Math.min(post.images.length, 6)}`}>
                   ${post.images.map((image) => html`
                     <button key=${image.path || image.publicUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
                       <img src=${imageSrc(image)} alt="Изображение публикации" />
@@ -2232,142 +2617,112 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
                 </div>
               ` : null}
 
-              ${post.text ? html`<div className="post-text">${post.text}</div>` : null}
-
-              <div className="post-footer">
-                <div className="post-footer__meta">${post.updatedBy ? `Обновил ${post.updatedBy}` : `Создал ${post.author}`}</div>
-                <div className="post-dates">${formatShortDate(post.startDate)}${post.endDate && post.endDate !== post.startDate ? ` - ${formatShortDate(post.endDate)}` : ""}</div>
-              </div>
-
-              <div className="post-comments">
-                ${post.comments?.length > 2 && !expandedComments[post.id] ? html`
-                  <button
-                    type="button"
-                    className="post-comments__more"
-                    onClick=${() => setExpandedComments((current) => ({ ...current, [post.id]: true }))}
-                  >
-                    Показать ещё ${post.comments.length - 2}
-                  </button>
-                ` : null}
-
-                <div className="comment-list">
-                  ${(expandedComments[post.id] ? post.comments : (post.comments || []).slice(-2)).map((comment) => html`
-                    <article key=${comment.id} className="comment-item">
-                      <div className="comment-avatar">${initials(comment.author)}</div>
-                      <div className="comment-bubble">
-                        <div className="comment-top">
-                          <div className="comment-author-row">
-                            <strong className="comment-author">${comment.author}</strong>
-                            ${comment.author === post.author ? html`<span className="comment-role">Автор</span>` : null}
-                          </div>
-                          <div className="comment-menu-wrap">
-                            <button
-                              type="button"
-                              className="menu-button comment-menu-button"
-                              onClick=${() => setCommentMenuKey((value) => value === `${post.id}:${comment.id}` ? "" : `${post.id}:${comment.id}`)}
-                              disabled=${saving}
-                            >⋯</button>
-                            ${commentMenuKey === `${post.id}:${comment.id}` ? html`
-                              <div className="post-menu comment-menu">
-                                <button
-                                  type="button"
-                                  className="post-menu__item"
-                                  onClick=${() => startEditComment(post.id, comment)}
-                                >
-                                  <span className="post-menu__icon">✎</span>
-                                  <span className="post-menu__label">Редактировать</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="post-menu__item is-danger"
-                                  onClick=${() => removeComment(post.id, comment.id)}
-                                >
-                                  <span className="post-menu__icon">🗑</span>
-                                  <span className="post-menu__label">Удалить комментарий</span>
-                                </button>
-                              </div>
-                            ` : null}
-                          </div>
-                        </div>
-                        ${editingCommentKey === `${post.id}:${comment.id}` ? html`
-                          <div className="comment-edit">
-                            <input
-                              type="text"
-                              value=${editingCommentText}
-                              onInput=${(event) => setEditingCommentText(event.target.value)}
-                              disabled=${saving}
-                            />
-                            <div className="comment-edit__actions">
-                              <button
-                                type="button"
-                                className="button button--blue button--small"
-                                onClick=${() => saveEditedComment(post.id, comment.id)}
-                                disabled=${saving || !String(editingCommentText || "").trim()}
-                              >Сохранить</button>
-                              <button
-                                type="button"
-                                className="button button--ghost button--small"
-                                onClick=${() => {
-                                  setEditingCommentKey("");
-                                  setEditingCommentText("");
-                                }}
-                                disabled=${saving}
-                              >Отмена</button>
-                            </div>
-                          </div>
-                        ` : html`
-                          <div className="comment-text">${comment.text}</div>
-                          <div className="comment-meta">${formatTime(comment.createdAt)}</div>
-                        `}
-                      </div>
-                    </article>
-                  `)}
-                </div>
-
-                <div className="comment-compose">
-                  <div className="comment-avatar is-self">${initials(actor || "L")}</div>
-                  <div className="comment-compose__field">
-                    <input
-                      type="text"
-                      value=${commentDrafts[post.id] || ""}
-                      onInput=${(event) => setCommentDrafts((current) => ({ ...current, [post.id]: event.target.value }))}
-                      onKeyDown=${(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          addComment(post.id);
-                        }
-                      }}
-                      placeholder="Написать комментарий..."
-                      disabled=${saving}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="comment-send"
-                    onClick=${() => addComment(post.id)}
-                    disabled=${saving || !String(commentDrafts[post.id] || "").trim()}
-                  >➤</button>
-                </div>
+              <div className="mobile-post-actions">
+                <button
+                  type="button"
+                  className="mobile-post-action"
+                  onClick=${() => {
+                    setCommentsPostId(post.id);
+                    setCommentMenuKey("");
+                  }}
+                  disabled=${saving}
+                >
+                  <span className="mobile-post-action__icon"><${AppIcon} name="comment" size=${18} /></span>
+                  <span>${post.comments?.length || 0}</span>
+                </button>
               </div>
 
               ${index < posts.length - 1 ? html`<div className="post-divider"></div>` : null}
             </article>
-          `) : html`
+          `;
+          }) : html`
             <section className="empty-state">
               <h3>${isArchived ? "Архив пока пуст" : "Лента пока пустая"}</h3>
-              <p>${isArchived ? "Сюда попадут публикации после переноса в архив." : "Первый пост можно добавить через верхнюю кнопку."}</p>
+              <p>${isArchived ? "Сюда попадут публикации после переноса в архив." : "Первый пост можно добавить через кнопку наверху."}</p>
             </section>
           `}
         </div>
       </section>
 
+      ${commentsPost && html`
+        <div className="comments-sheet-backdrop" onClick=${closeComments}>
+          <section className="comments-sheet" onClick=${(event) => event.stopPropagation()}>
+            <div className="comments-sheet__head">
+              <div>
+                <h3>Комментарии</h3>
+                <p>${commentsPost.comments?.length || 0}</p>
+              </div>
+              <button type="button" className="modal-close" onClick=${closeComments}>×</button>
+            </div>
+
+            <div className="comments-sheet__body">
+              ${commentsPost.text ? html`<div className="comments-sheet__post-preview">${commentsPost.text}</div>` : null}
+
+              <div className="comments-sheet__list">
+                ${(commentsPost.comments?.length || 0)
+                  ? renderCommentThread(commentsPost.id, commentsPost.comments || [])
+                  : html`
+                    <div className="comments-sheet__empty">
+                      <strong>Комментариев пока нет</strong>
+                      <span>Начните обсуждение первыми.</span>
+                    </div>
+                  `}
+              </div>
+            </div>
+
+            <div className="comments-sheet__composer">
+              ${replyTargets[commentsPost.id] ? html`
+                <div className="comments-sheet__replying">
+                  <span>Ответ для ${replyTargets[commentsPost.id].author}</span>
+                  <button
+                    type="button"
+                    className="sheet-comment__action"
+                    onClick=${() => setReplyTargets((current) => ({ ...current, [commentsPost.id]: null }))}
+                    disabled=${saving}
+                  >Скрыть</button>
+                </div>
+              ` : null}
+
+              <div className="comments-sheet__composer-row">
+                <button type="button" className="sheet-compose__icon" aria-label="Приложить фото">📎</button>
+                <div className="sheet-compose__field">
+                  <input
+                    type="text"
+                    value=${commentDrafts[commentsPost.id] || ""}
+                    onInput=${(event) => setCommentDrafts((current) => ({ ...current, [commentsPost.id]: event.target.value }))}
+                    onKeyDown=${(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addComment(commentsPost.id);
+                      }
+                    }}
+                    placeholder=${replyTargets[commentsPost.id] ? "Ответить..." : "Комментарий"}
+                    disabled=${saving}
+                  />
+                </div>
+                <button type="button" className="sheet-compose__icon" aria-label="Стикеры">☺</button>
+                <button
+                  type="button"
+                  className="sheet-compose__send"
+                  onClick=${() => addComment(commentsPost.id)}
+                  disabled=${saving || !String(commentDrafts[commentsPost.id] || "").trim()}
+                >➤</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      `}
+
       ${modalOpen && html`
         <${PostModal}
           saving=${saving}
-          onClose=${() => setModalOpen(false)}
+          initialPost=${editingPost}
+          onClose=${closePostModal}
           onSubmit=${async (draft) => {
-            const saved = await onCreatePost(draft);
-            if (saved) setModalOpen(false);
+            const saved = editingPost
+              ? await onEditPost(editingPost.id, draft)
+              : await onCreatePost(draft);
+            if (saved) closePostModal();
           }}
         />
       `}
@@ -2384,28 +2739,28 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onDeletePost, sa
   `;
 }
 
-function PostModal({ saving, onClose, onSubmit }) {
-  const [draft, setDraft] = useState({
-    text: "",
-    pinned: false,
-    startDate: todayISO(),
-    endDate: todayISO(),
+function PostModal({ saving, onClose, onSubmit, initialPost = null }) {
+  const fileInputRef = useRef(null);
+  const isEditing = Boolean(initialPost);
+  const buildDraft = React.useCallback((post = null) => ({
+    text: post?.text || "",
+    pinned: Boolean(post?.pinned),
+    startDate: post?.startDate || todayISO(),
+    endDate: post?.endDate || post?.startDate || todayISO(),
+    existingImages: Array.isArray(post?.images) ? post.images.map((image) => ({ ...image })) : [],
     files: [],
     previews: [],
-  });
+  }), []);
+  const [draft, setDraft] = useState(() => buildDraft(initialPost));
   const [emojiOpen, setEmojiOpen] = useState(false);
 
-  const changeFiles = (fileList) => {
-    const files = Array.from(fileList || []);
+  useEffect(() => {
     setDraft((current) => {
       current.previews.forEach((preview) => URL.revokeObjectURL(preview));
-      return {
-        ...current,
-        files,
-        previews: files.map((file) => URL.createObjectURL(file)),
-      };
+      return buildDraft(initialPost);
     });
-  };
+    setEmojiOpen(false);
+  }, [buildDraft, initialPost]);
 
   useEffect(() => () => {
     draft.previews.forEach((preview) => URL.revokeObjectURL(preview));
@@ -2422,28 +2777,99 @@ function PostModal({ saving, onClose, onSubmit }) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [emojiOpen]);
 
+  const appendFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setDraft((current) => ({
+      ...current,
+      files: [...current.files, ...files],
+      previews: [...current.previews, ...files.map((file) => URL.createObjectURL(file))],
+    }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removeExistingImage = (index) => {
+    setDraft((current) => ({
+      ...current,
+      existingImages: current.existingImages.filter((_, imageIndex) => imageIndex !== index),
+    }));
+  };
+
+  const removeNewFile = (index) => {
+    setDraft((current) => {
+      const preview = current.previews[index];
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+      return {
+        ...current,
+        files: current.files.filter((_, fileIndex) => fileIndex !== index),
+        previews: current.previews.filter((_, previewIndex) => previewIndex !== index),
+      };
+    });
+  };
+
+  const totalImages = draft.existingImages.length + draft.files.length;
+
   return html`
     <div className="modal-backdrop" onClick=${onClose}>
       <div className="modal-sheet modal-sheet--post" onClick=${(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <h3>Новый пост</h3>
-            <p>Фотографии и текст можно опубликовать одной карточкой.</p>
+            <h3>${isEditing ? "Редактировать пост" : "Новая запись"}</h3>
+            <p>${isEditing ? "Можно поменять текст, даты и состав фотографий." : "Добавь текст, фотографии и даты показа в календаре."}</p>
           </div>
           <button type="button" className="modal-close" onClick=${onClose}>×</button>
         </div>
 
-        <label className="upload-drop upload-drop--compact">
-          <input type="file" accept="image/*" multiple onChange=${(event) => changeFiles(event.target.files)} disabled=${saving} hidden />
-          <span>Добавить фото</span>
-          <small>Файлы с телефона и ПК</small>
-        </label>
+        <div className="upload-drop upload-drop--compact upload-drop--list">
+          <input
+            ref=${fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange=${(event) => appendFiles(event.target.files)}
+            disabled=${saving}
+            hidden
+          />
+          <button
+            type="button"
+            className="button button--ghost upload-drop__button"
+            onClick=${() => fileInputRef.current?.click()}
+            disabled=${saving}
+          >
+            <span>📎</span>
+            <span>Добавить фото</span>
+          </button>
+          <small>${totalImages ? `Фотографий: ${totalImages}` : "Можно добавлять и убирать изображения перед сохранением."}</small>
+        </div>
 
-        ${draft.previews.length ? html`
-          <div className=${`post-gallery gallery-${Math.min(draft.previews.length, 4)} post-gallery--preview`}>
-            ${draft.previews.map((preview) => html`
-              <div key=${preview} className="gallery-item is-static">
-                <img src=${preview} alt="Предпросмотр" />
+        ${(draft.existingImages.length || draft.previews.length) ? html`
+          <div className="attachment-list">
+            ${draft.existingImages.map((image, index) => html`
+              <div key=${image.path || image.publicUrl || `${index}-${getImageLabel(image)}`} className="attachment-item">
+                <div className="attachment-item__preview">
+                  <img src=${imageSrc(image)} alt="Изображение" />
+                </div>
+                <div className="attachment-item__meta">
+                  <strong>${getImageLabel(image)}</strong>
+                  <span>Уже в посте</span>
+                </div>
+                <button type="button" className="attachment-item__remove" onClick=${() => removeExistingImage(index)} disabled=${saving}>×</button>
+              </div>
+            `)}
+            ${draft.previews.map((preview, index) => html`
+              <div key=${preview} className="attachment-item">
+                <div className="attachment-item__preview">
+                  <img src=${preview} alt="Новое изображение" />
+                </div>
+                <div className="attachment-item__meta">
+                  <strong>${draft.files[index]?.name || "Новое изображение"}</strong>
+                  <span>Будет добавлено</span>
+                </div>
+                <button type="button" className="attachment-item__remove" onClick=${() => removeNewFile(index)} disabled=${saving}>×</button>
               </div>
             `)}
           </div>
@@ -2457,11 +2883,11 @@ function PostModal({ saving, onClose, onSubmit }) {
                 className="editor-textarea editor-textarea--modal"
                 value=${draft.text}
                 onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
-                placeholder="Напишите что-нибудь"
+                placeholder="Что нового?"
                 disabled=${saving}
               ></textarea>
               <div className="emoji-anchor">
-                <button type="button" className="emoji-button" onClick=${() => setEmojiOpen((value) => !value)} disabled=${saving}>😊</button>
+                <button type="button" className="emoji-button" onClick=${() => setEmojiOpen((value) => !value)} disabled=${saving}>☺</button>
                 ${emojiOpen && html`
                   <div className="emoji-pop">
                     ${EMOJIS.map((emoji) => html`
@@ -2475,11 +2901,11 @@ function PostModal({ saving, onClose, onSubmit }) {
 
           <div className="field-row">
             <label className="field">
-              <span>Начало</span>
+              <span>С</span>
               <input type="date" value=${draft.startDate} onInput=${(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} disabled=${saving} />
             </label>
             <label className="field">
-              <span>Окончание</span>
+              <span>По</span>
               <input type="date" value=${draft.endDate} onInput=${(event) => setDraft((current) => ({ ...current, endDate: event.target.value }))} disabled=${saving} />
             </label>
           </div>
@@ -2494,10 +2920,10 @@ function PostModal({ saving, onClose, onSubmit }) {
               type="button"
               className="button button--red"
               onClick=${() => onSubmit(draft)}
-              disabled=${saving || (!draft.text.trim() && !draft.files.length)}
+              disabled=${saving || (!draft.text.trim() && !draft.files.length && !draft.existingImages.length)}
             >
               ${saving ? html`<${ButtonSpinner} />` : null}
-              <span>${saving ? "Публикация..." : "Опубликовать"}</span>
+              <span>${saving ? (isEditing ? "Сохраняется..." : "Публикуется...") : (isEditing ? "Сохранить" : "Опубликовать")}</span>
             </button>
           </div>
         </div>
@@ -2511,13 +2937,14 @@ function CalendarPage({ state, onLocalChange }) {
   const [selectedDate, setSelectedDate] = useState(`${monthKey}-01`);
   const days = useMemo(() => monthMatrix(monthKey), [monthKey]);
   const events = useMemo(() => collectEventsForDate(state, selectedDate), [state, selectedDate]);
-  const monthLabel = new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(new Date(`${monthKey}-01T12:00:00`));
   const totals = useMemo(() => {
-    const next = { planner: 0, dogs: 0, post: 0 };
+    const next = { planner: 0, post: 0 };
     days.forEach((day) => {
       if (!day) return;
       collectEventsForDate(state, day).forEach((item) => {
-        next[item.type] += 1;
+        if (Object.hasOwn(next, item.type)) {
+          next[item.type] += 1;
+        }
       });
     });
     return next;
@@ -2534,28 +2961,21 @@ function CalendarPage({ state, onLocalChange }) {
   };
 
   return html`
-    <main className="page">
+    <main className="page calendar-page">
       <section className="panel calendar-panel">
-        <div className="page-head">
-          <div>
-            <h2>Проверка плана по датам</h2>
-            <p>Календарь собирает записи из планировщика, собак и ленты.</p>
-          </div>
-
-          <div className="calendar-controls">
-            <button type="button" className="icon-button" onClick=${() => shiftMonth(-1)}>←</button>
-            <div className="calendar-month-pill">${monthLabel}</div>
-            <button type="button" className="icon-button" onClick=${() => shiftMonth(1)}>→</button>
-            <label className="date-field date-field--month">
-              <span>Месяц</span>
-              <input type="month" value=${monthKey} onInput=${(event) => onLocalChange({ ...state, calendarMonth: event.target.value })} />
-            </label>
-          </div>
+        <div className="calendar-controls calendar-controls--compact">
+          <button type="button" className="icon-button" onClick=${() => shiftMonth(-1)}>←</button>
+          <input
+            className="calendar-month-input"
+            type="month"
+            value=${monthKey}
+            onInput=${(event) => onLocalChange({ ...state, calendarMonth: event.target.value })}
+          />
+          <button type="button" className="icon-button" onClick=${() => shiftMonth(1)}>→</button>
         </div>
 
         <div className="calendar-summary">
           <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>Траты: ${totals.planner}</span></div>
-          <div className="calendar-summary__item"><i className="dot dot--dogs"></i><span>Собаки: ${totals.dogs}</span></div>
           <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента: ${totals.post}</span></div>
         </div>
 
@@ -2599,22 +3019,35 @@ function CalendarPage({ state, onLocalChange }) {
       </section>
 
       <section className="panel agenda-panel">
-        <div className="page-head">
-          <div>
-            <h2>${formatDate(selectedDate)}</h2>
-            <p>${events.length ? "Все события на выбранный день." : "На выбранную дату событий пока нет."}</p>
-          </div>
+        <div className="calendar-agenda-head">
+          <h2>Календарь</h2>
+          <p>${formatDate(selectedDate)}</p>
         </div>
 
         <div className="agenda-list">
-          ${events.length ? events.map((item) => html`
+          ${events.length ? events.map((item) => item.type === "post" && item.post ? html`
+            <article key=${item.id} className="agenda-item agenda-item--post">
+              <div className="agenda-badge agenda-badge--post">${item.label}</div>
+              <div className="agenda-post-meta">${item.post.author || item.post.createdBy || "Lesha"} • ${formatFeedTimeMsk(item.post.createdAt || item.post.updatedAt)}</div>
+              ${item.post.text ? html`<div className="agenda-text">${item.post.text}</div>` : null}
+              ${item.post.images?.length ? html`
+                <div className=${`post-gallery gallery-${Math.min(item.post.images.length, 6)} agenda-gallery`}>
+                  ${item.post.images.map((image) => html`
+                    <div key=${image.path || image.publicUrl || image.url} className="gallery-item">
+                      <img src=${imageSrc(image)} alt="Изображение публикации" />
+                    </div>
+                  `)}
+                </div>
+              ` : null}
+            </article>
+          ` : html`
             <article key=${item.id} className="agenda-item">
               <div className=${`agenda-badge agenda-badge--${item.type}`}>${item.label}</div>
               <div className="agenda-text">${item.text}</div>
             </article>
           `) : html`
             <div className="empty-state empty-state--soft">
-              <p>Календарь станет плотнее, когда появятся новые записи и публикации.</p>
+              <p>На выбранную дату событий пока нет.</p>
             </div>
           `}
         </div>
@@ -2624,11 +3057,13 @@ function CalendarPage({ state, onLocalChange }) {
 }
 
 function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete, onAddTab, onSelectTab }) {
-  const [title, setTitle] = useState(tab?.title || "");
-  const [groups, setGroups] = useState(() => (tab?.groups || []).map((group) => ({
+  const cloneGroups = (list) => (list || []).map((group) => ({
     ...group,
     items: (group.items || []).map((item) => ({ ...item })),
-  })));
+  }));
+
+  const [title, setTitle] = useState(tab?.title || "");
+  const [groups, setGroups] = useState(() => cloneGroups(tab?.groups || []));
   const [creating, setCreating] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [editingGroups, setEditingGroups] = useState({});
@@ -2639,10 +3074,7 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
 
   useEffect(() => {
     setTitle(tab?.title || "");
-    setGroups((tab?.groups || []).map((group) => ({
-      ...group,
-      items: (group.items || []).map((item) => ({ ...item })),
-    })));
+    setGroups(cloneGroups(tab?.groups || []));
     setEditingGroups({});
     setEditingItems({});
     setItemDrafts({});
@@ -2706,28 +3138,136 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     `;
   }
 
-  const addGroup = () => {
-    setGroups((current) => [...current, getDefaultMoneyGroup(actor)]);
+  const groupTotal = (group) => (group.items || []).reduce((sum, item) => sum + parseMoneyInput(item.cost), 0);
+  const total = useMemo(() => groups.reduce((sum, group) => sum + groupTotal(group), 0), [groups]);
+  const titleDirty = String(title || "") !== String(tab?.title || "");
+
+  const getSavedGroup = (groupId) => (tab?.groups || []).find((group) => group.id === groupId) || null;
+  const getSavedItem = (groupId, itemId) => (getSavedGroup(groupId)?.items || []).find((item) => item.id === itemId) || null;
+
+  const buildNextTab = (nextTitle = title, nextGroups = groups) => {
+    if (!String(nextTitle || "").trim()) {
+      setTitleError("Введите название плана");
+      setTitleShake(false);
+      window.setTimeout(() => setTitleShake(true), 0);
+      return null;
+    }
+
+    setTitleError("");
+    const timestamp = nowISO();
+    return normalizeMoneyTab({
+      ...tab,
+      title: String(nextTitle || "").trim(),
+      createdAt: tab.createdAt || timestamp,
+      createdBy: tab.createdBy || actor,
+      updatedAt: timestamp,
+      updatedBy: actor,
+      groups: (nextGroups || []).map((group) => normalizeMoneyGroup({
+        ...group,
+        title: String(group.title || "").trim(),
+        createdAt: group.createdAt || timestamp,
+        createdBy: group.createdBy || actor,
+        updatedAt: timestamp,
+        updatedBy: actor,
+        items: sortMoneySubitems(group.items || []).map((item) => normalizeMoneySubitem({
+          ...item,
+          name: String(item.name || "").trim(),
+          cost: String(item.cost ?? "").trim(),
+          isNew: false,
+          createdAt: item.createdAt || timestamp,
+          createdBy: item.createdBy || actor,
+          updatedAt: timestamp,
+          updatedBy: actor,
+        })),
+      })),
+    });
+  };
+
+  const commitTab = async (nextTitle = title, nextGroups = groups, afterSave = null) => {
+    const nextTab = buildNextTab(nextTitle, nextGroups);
+    if (!nextTab) return false;
+    const saved = await onSave(tab.id, nextTab);
+    if (saved) {
+      setTitle(nextTab.title);
+      setGroups(cloneGroups(nextTab.groups));
+      if (typeof afterSave === "function") {
+        afterSave(nextTab);
+      }
+    }
+    return saved;
   };
 
   const updateGroup = (groupId, patch) => {
     setGroups((current) => current.map((group) => (group.id === groupId ? { ...group, ...patch } : group)));
   };
 
-  const removeGroup = (groupId) => {
-    setGroups((current) => current.filter((group) => group.id !== groupId));
-    setEditingGroups((current) => {
+  const replaceGroup = (groupId, nextGroup) => {
+    setGroups((current) => current.map((group) => (group.id === groupId ? nextGroup : group)));
+  };
+
+  const addGroup = () => {
+    const nextGroup = getDefaultMoneyGroup(actor);
+    setGroups((current) => [...current, nextGroup]);
+    setEditingGroups((current) => ({ ...current, [nextGroup.id]: true }));
+  };
+
+  const startEditGroup = (groupId) => {
+    setEditingGroups((current) => ({ ...current, [groupId]: true }));
+  };
+
+  const isGroupDirty = (group) => {
+    const savedGroup = getSavedGroup(group.id) || { id: group.id, title: "", items: [] };
+    return serializeMoneyDraft("group", [group]) !== serializeMoneyDraft("group", [savedGroup]);
+  };
+
+  const saveGroup = async (groupId) => {
+    const target = groups.find((group) => group.id === groupId);
+    if (!target || !String(target.title || "").trim()) return;
+    await commitTab(title, groups, () => {
+      setEditingGroups((current) => ({ ...current, [groupId]: false }));
+    });
+  };
+
+  const cancelGroupEdit = (groupId) => {
+    const savedGroup = getSavedGroup(groupId);
+    if (!savedGroup) {
+      setGroups((current) => current.filter((group) => group.id !== groupId));
+    } else {
+      replaceGroup(groupId, {
+        ...savedGroup,
+        items: (savedGroup.items || []).map((item) => ({ ...item })),
+      });
+    }
+    setEditingGroups((current) => ({ ...current, [groupId]: false }));
+    setEditingItems((current) => {
       const next = { ...current };
-      delete next[groupId];
+      Object.keys(next).forEach((itemId) => {
+        if ((savedGroup?.items || []).some((item) => item.id === itemId) || !savedGroup) {
+          delete next[itemId];
+        }
+      });
+      return next;
+    });
+    setItemDrafts((current) => {
+      const next = { ...current };
+      Object.keys(next).forEach((itemId) => {
+        if ((savedGroup?.items || []).some((item) => item.id === itemId) || !savedGroup) {
+          delete next[itemId];
+        }
+      });
       return next;
     });
   };
 
-  const toggleGroupEditing = (groupId) => {
-    setEditingGroups((current) => ({
-      ...current,
-      [groupId]: !current[groupId],
-    }));
+  const removeGroup = async (groupId) => {
+    const nextGroups = groups.filter((group) => group.id !== groupId);
+    await commitTab(title, nextGroups, () => {
+      setEditingGroups((current) => {
+        const next = { ...current };
+        delete next[groupId];
+        return next;
+      });
+    });
   };
 
   const addSubitem = (groupId) => {
@@ -2737,6 +3277,7 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
         ? { ...group, items: [...group.items, nextItem] }
         : group
     )));
+    setEditingGroups((current) => ({ ...current, [groupId]: true }));
     setEditingItems((current) => ({ ...current, [nextItem.id]: true }));
     setItemDrafts((current) => ({ ...current, [nextItem.id]: { ...nextItem } }));
   };
@@ -2752,31 +3293,8 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     )));
   };
 
-  const removeSubitem = (groupId, itemId) => {
-    setGroups((current) => current.map((group) => (
-      group.id === groupId
-        ? { ...group, items: group.items.filter((item) => item.id !== itemId) }
-        : group
-    )));
-    setEditingItems((current) => {
-      const next = { ...current };
-      delete next[itemId];
-      return next;
-    });
-    setItemDrafts((current) => {
-      const next = { ...current };
-      delete next[itemId];
-      return next;
-    });
-  };
-
-  const groupTotal = (group) => (group.items || []).reduce((sum, item) => sum + parseMoneyInput(item.cost), 0);
-  const total = useMemo(() => groups.reduce((sum, group) => sum + groupTotal(group), 0), [groups]);
-  const initialSignature = useMemo(() => serializeMoneyDraft(tab?.title || "", tab?.groups || []), [tab?.title, tab?.groups]);
-  const currentSignature = useMemo(() => serializeMoneyDraft(title, groups), [title, groups]);
-  const isDirty = initialSignature !== currentSignature;
-
-  const startEditSubitem = (item) => {
+  const startEditSubitem = (groupId, item) => {
+    setEditingGroups((current) => ({ ...current, [groupId]: true }));
     setEditingItems((current) => ({ ...current, [item.id]: true }));
     setItemDrafts((current) => ({ ...current, [item.id]: { ...item } }));
   };
@@ -2791,7 +3309,7 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     }));
   };
 
-  const cancelEditSubitem = (itemId) => {
+  const clearSubitemEdit = (itemId) => {
     setEditingItems((current) => {
       const next = { ...current };
       delete next[itemId];
@@ -2804,66 +3322,79 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
     });
   };
 
-  const applyEditSubitem = (groupId, itemId) => {
-    const draft = itemDrafts[itemId];
-    if (!draft) return;
-    updateSubitem(groupId, itemId, {
-      ...draft,
-      isNew: false,
-      updatedAt: nowISO(),
-      updatedBy: actor,
-    });
-    cancelEditSubitem(itemId);
-  };
-
-  const saveTab = async () => {
-    if (!isDirty) return;
-    if (!title.trim()) {
-      setTitleError("Введите название плана");
-      setTitleShake(false);
-      window.setTimeout(() => setTitleShake(true), 0);
-      return;
+  const cancelEditSubitem = (groupId, itemId) => {
+    const savedItem = getSavedItem(groupId, itemId);
+    if (!savedItem) {
+      setGroups((current) => current.map((group) => (
+        group.id === groupId ? { ...group, items: group.items.filter((item) => item.id !== itemId) } : group
+      )));
     }
-
-    setTitleError("");
-    const timestamp = nowISO();
-    const nextTab = normalizeMoneyTab({
-      ...tab,
-      title: title.trim() || "Планы (деньги)",
-      createdAt: tab.createdAt || timestamp,
-      createdBy: tab.createdBy || actor,
-      updatedAt: timestamp,
-      updatedBy: actor,
-      groups: groups
-        .filter((group) => group.title.trim() || group.items.some((item) => item.name.trim() || String(item.cost).trim()))
-        .map((group) => normalizeMoneyGroup({
-          ...group,
-          title: group.title.trim(),
-          createdAt: group.createdAt || timestamp,
-          createdBy: group.createdBy || actor,
-          updatedAt: timestamp,
-          updatedBy: actor,
-          items: sortMoneySubitems(group.items)
-            .filter((item) => item.name.trim() || String(item.cost).trim())
-            .map((item) => normalizeMoneySubitem({
-              ...item,
-              name: item.name.trim(),
-              cost: String(item.cost || "").trim(),
-              completed: Boolean(item.completed),
-              isNew: false,
-              createdAt: item.createdAt || timestamp,
-              createdBy: item.createdBy || actor,
-              updatedAt: timestamp,
-              updatedBy: actor,
-            })),
-        })),
-    });
-
-    await onSave(tab.id, nextTab);
+    clearSubitemEdit(itemId);
   };
 
-  const isSubitemDirty = (item, draft) => {
-    return serializeMoneySubitem(item) !== serializeMoneySubitem(draft);
+  const isSubitemDirty = (item, draft) => serializeMoneySubitem(item) !== serializeMoneySubitem(draft);
+
+  const saveSubitem = async (groupId, itemId) => {
+    const draft = itemDrafts[itemId];
+    if (!draft || (!String(draft.name || "").trim() && !String(draft.cost || "").trim())) return;
+    const nextGroups = groups.map((group) => (
+      group.id === groupId
+        ? {
+          ...group,
+          items: group.items.map((item) => (
+            item.id === itemId
+              ? {
+                ...item,
+                ...draft,
+                isNew: false,
+                updatedAt: nowISO(),
+                updatedBy: actor,
+              }
+              : item
+          )),
+        }
+        : group
+    ));
+    await commitTab(title, nextGroups, () => {
+      clearSubitemEdit(itemId);
+    });
+  };
+
+  const toggleSubitemCompleted = async (groupId, item) => {
+    const nextGroups = groups.map((group) => (
+      group.id === groupId
+        ? {
+          ...group,
+          items: group.items.map((entry) => (
+            entry.id === item.id
+              ? { ...entry, completed: !entry.completed, updatedAt: nowISO(), updatedBy: actor }
+              : entry
+          )),
+        }
+        : group
+    ));
+    await commitTab(title, nextGroups);
+  };
+
+  const removeSubitem = async (groupId, itemId) => {
+    const nextGroups = groups.map((group) => (
+      group.id === groupId
+        ? { ...group, items: group.items.filter((item) => item.id !== itemId) }
+        : group
+    ));
+    await commitTab(title, nextGroups, () => {
+      clearSubitemEdit(itemId);
+    });
+  };
+
+  const saveTitle = async () => {
+    await commitTab(title, groups);
+  };
+
+  const cancelTitle = () => {
+    setTitle(tab?.title || "");
+    setTitleError("");
+    setTitleShake(false);
   };
 
   return html`
@@ -2915,12 +3446,9 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
             <div className="money-plan-total">Итого: ${formatMoney(total)}</div>
           </div>
           <div className="money-mini-head__actions">
-            ${isDirty ? html`
-              <button type="button" className="icon-button money-tab-editor__apply" onClick=${saveTab} disabled=${saving}>
-                ${saving ? html`<${ButtonSpinner} />` : "✓"}
-              </button>
-            ` : null}
-            <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => onDelete(tab.id)} disabled=${saving}>×</button>
+            <button type="button" className="icon-button money-tab-editor__apply" onClick=${saveTitle} disabled=${saving || !title.trim() || !titleDirty}>✓</button>
+            <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelTitle} disabled=${saving || !titleDirty}>×</button>
+            <button type="button" className="icon-button money-row__delete" onClick=${() => onDelete(tab.id)} disabled=${saving}>⌫</button>
           </div>
         </div>
 
@@ -2944,13 +3472,20 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                   <div className="money-group__total">${formatMoney(groupTotal(group))}</div>
                 </div>
                 <div className="money-group__actions">
-                  <button
-                    type="button"
-                    className=${`icon-button money-row__edit${editingGroups[group.id] ? " is-active" : ""}`}
-                    onClick=${() => toggleGroupEditing(group.id)}
-                    disabled=${saving}
-                  >✎</button>
-                  <button type="button" className="icon-button money-row__delete" onClick=${() => removeGroup(group.id)} disabled=${saving || groups.length <= 1}>×</button>
+                  ${editingGroups[group.id]
+                    ? html`
+                      <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => saveGroup(group.id)} disabled=${saving || !group.title.trim() || !isGroupDirty(group)}>✓</button>
+                      <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelGroupEdit(group.id)} disabled=${saving}>×</button>
+                    `
+                    : html`
+                      <button
+                        type="button"
+                        className="icon-button money-row__edit"
+                        onClick=${() => startEditGroup(group.id)}
+                        disabled=${saving}
+                      >✎</button>
+                    `}
+                  <button type="button" className="icon-button money-row__delete" onClick=${() => removeGroup(group.id)} disabled=${saving || groups.length <= 1}>⌫</button>
                 </div>
               </div>
 
@@ -2961,6 +3496,22 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                   const itemDirty = isSubitemDirty(item, draft);
                   return isEditing && editingGroups[group.id] ? html`
                     <div key=${item.id} className="money-row money-row--editing">
+                      <div className="money-row__edit-head">
+                        <strong>${draft.name || "Подпункт"}</strong>
+                        <div className="money-row__edit-actions">
+                          ${draft.isNew ? null : html`
+                            <button
+                              type="button"
+                              className=${`money-status-toggle${draft.completed ? " is-return" : " is-done"}`}
+                              onClick=${() => updateDraftSubitem(item.id, { completed: !draft.completed })}
+                              disabled=${saving}
+                            >${draft.completed ? "Вернуть" : "Сделано"}</button>
+                          `}
+                          <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => saveSubitem(group.id, item.id)} disabled=${saving || !itemDirty || (!String(draft.name || "").trim() && !String(draft.cost || "").trim())}>✓</button>
+                          <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelEditSubitem(group.id, item.id)} disabled=${saving}>×</button>
+                        </div>
+                      </div>
+
                       <label className="money-cell">
                         <span className="money-cell__label">Подпункт</span>
                         <input
@@ -2983,21 +3534,6 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                           disabled=${saving}
                         />
                       </label>
-
-                      <div className="money-row__side money-row__side--edit">
-                        ${draft.isNew ? null : html`
-                          <button
-                            type="button"
-                            className=${`money-status-toggle${draft.completed ? " is-return" : " is-done"}`}
-                            onClick=${() => updateDraftSubitem(item.id, { completed: !draft.completed })}
-                            disabled=${saving}
-                          >${draft.completed ? "Вернуть" : "Сделано"}</button>
-                        `}
-                        ${itemDirty ? html`
-                          <button type="button" className="icon-button money-tab-editor__apply" onClick=${() => applyEditSubitem(group.id, item.id)} disabled=${saving}>✓</button>
-                        ` : null}
-                        <button type="button" className="icon-button money-tab-editor__cancel" onClick=${() => cancelEditSubitem(item.id)} disabled=${saving}>×</button>
-                      </div>
                     </div>
                   ` : html`
                     <div key=${item.id} className=${`money-row money-row--compact${item.completed ? " is-done" : ""}`}>
@@ -3012,16 +3548,12 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                             <button
                               type="button"
                               className=${`money-status-toggle${item.completed ? " is-return" : " is-done"}`}
-                              onClick=${() => updateSubitem(group.id, item.id, {
-                                completed: !item.completed,
-                                updatedAt: nowISO(),
-                                updatedBy: actor,
-                              })}
+                              onClick=${() => toggleSubitemCompleted(group.id, item)}
                               disabled=${saving}
                             >${item.completed ? "Вернуть" : "Сделано"}</button>
                           `}
-                          <button type="button" className="icon-button money-row__edit" onClick=${() => startEditSubitem(item)} disabled=${saving}>✎</button>
-                          <button type="button" className="icon-button money-row__delete" onClick=${() => removeSubitem(group.id, item.id)} disabled=${saving || group.items.length <= 1}>×</button>
+                          <button type="button" className="icon-button money-row__edit" onClick=${() => startEditSubitem(group.id, item)} disabled=${saving}>✎</button>
+                          <button type="button" className="icon-button money-row__delete" onClick=${() => removeSubitem(group.id, item.id)} disabled=${saving || group.items.length <= 1}>⌫</button>
                         </div>
                       ` : html`<div></div>`}
                     </div>
