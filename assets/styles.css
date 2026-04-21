@@ -544,6 +544,11 @@ textarea {
   line-height: 1.6;
 }
 
+.editor-textarea--event {
+  min-height: 136px;
+  max-height: 220px;
+}
+
 .editor-textarea--modal {
   min-height: 108px;
   max-height: 176px;
@@ -1044,7 +1049,7 @@ textarea {
 .comments-sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: 90;
   background: rgba(15, 20, 28, 0.36);
   display: flex;
   align-items: flex-end;
@@ -1365,6 +1370,23 @@ textarea {
   max-height: min(88vh, 760px);
 }
 
+.modal-sheet--event {
+  width: min(560px, 100%);
+  max-height: min(88vh, 720px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.modal-sheet__body {
+  min-height: 0;
+}
+
+.modal-sheet__body--event {
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+}
+
 .lightbox__frame {
   animation: scale-in 200ms ease both;
 }
@@ -1530,6 +1552,31 @@ textarea {
   background: var(--surface-strong);
 }
 
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-actions--event {
+  border-top: 1px solid var(--line);
+  margin: 0 -16px -16px;
+  padding: 12px 16px 16px;
+  background: var(--surface-strong);
+}
+
+.modal-actions__side {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.modal-actions__side--end {
+  justify-content: flex-end;
+}
+
 .emoji-wrap {
   position: relative;
 }
@@ -1575,16 +1622,31 @@ textarea {
   justify-content: center;
 }
 
+.lightbox {
+  overflow: auto;
+  align-items: flex-start;
+  justify-content: center;
+}
+
 .lightbox__frame {
   position: relative;
-  width: min(1080px, 100%);
-  padding: 18px;
+  width: auto;
+  max-width: min(1080px, 100%);
+  max-height: none;
+  overflow: visible;
+  padding: 18px 18px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lightbox__frame img {
-  width: 100%;
-  max-height: 80vh;
+  width: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 88px);
   object-fit: contain;
+  display: block;
+  margin: 0 auto;
 }
 
 .lightbox__close {
@@ -2442,11 +2504,9 @@ textarea {
 @keyframes page-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -2714,6 +2774,14 @@ textarea {
     max-height: calc(100vh - 24px);
   }
 
+  .modal-sheet--event {
+    max-height: calc(100vh - 24px);
+  }
+
+  .modal-sheet__body--event {
+    gap: 10px;
+  }
+
   .modal-sheet {
     padding: 14px;
   }
@@ -2823,6 +2891,12 @@ textarea {
     backdrop-filter: blur(18px);
   }
 
+  body.has-comments-sheet .bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(110%);
+  }
+
   :root[data-theme="dark"] .bottom-nav {
     background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
     border-top-color: var(--line);
@@ -2898,6 +2972,11 @@ textarea {
     max-height: 128px;
   }
 
+  .editor-textarea--event {
+    min-height: 108px;
+    max-height: 168px;
+  }
+
   .attachment-list {
     max-height: 112px;
   }
@@ -2969,6 +3048,20 @@ textarea {
   .modal-fields .field-row,
   .modal-fields .field-row--end {
     grid-template-columns: 1fr;
+  }
+
+  .modal-actions--event {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .modal-actions__side,
+  .modal-actions__side--end {
+    justify-content: stretch;
+  }
+
+  .modal-actions__side .button {
+    flex: 1 1 auto;
   }
 
   .money-row__summary {

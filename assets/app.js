@@ -671,11 +671,16 @@ const getSupabaseStateStore = () => {
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
+const SUPABASE_SCHEMA_MESSAGE = "Нужно обновить схему Supabase. Выполните SQL из файла supabase/relational_state.sql.";
+
 const isMissingSupabaseTableError = (error) => {
   const message = String(error?.message || "");
   return error?.code === "42P01"
+    || error?.code === "42703"
     || /does not exist/i.test(message)
-    || /Could not find the table/i.test(message);
+    || /Could not find the table/i.test(message)
+    || /Could not find the .* column/i.test(message)
+    || /schema cache/i.test(message);
 };
 
 const hasStoredStatePayload = (payload) => {
@@ -769,7 +774,7 @@ const mergeStatePatch = (current, patch = {}) => normalizeState({
   customTabs: hasOwn(patch, "customTabs") ? patch.customTabs : current.customTabs,
 });
 
-const assertSupabaseResult = (result, missingMessage = "Supabase schema is not ready") => {
+const assertSupabaseResult = (result, missingMessage = SUPABASE_SCHEMA_MESSAGE) => {
   if (!result?.error) {
     return result.data;
   }
@@ -950,7 +955,7 @@ const hasRelationalData = async (store) => {
   const results = [metaResult, plannerResult, dogsResult, postsResult, tabsResult];
   const missingResult = results.find((result) => result.error && isMissingSupabaseTableError(result.error));
   if (missingResult) {
-    throw new Error("Supabase schema is not ready");
+    throw new Error(SUPABASE_SCHEMA_MESSAGE);
   }
 
   const failedResult = results.find((result) => result.error);
@@ -1097,9 +1102,9 @@ const saveFullState = async (payload, providedStore = null) => {
   const { error: metaError } = await client.from(store.tables.meta).upsert(metaRow, { onConflict: "id" });
   if (metaError) {
     if (isMissingSupabaseTableError(metaError)) {
-      throw new Error("? Supabase ?? ??????? ????? ????? ?????? ?????????");
+      throw new Error(SUPABASE_SCHEMA_MESSAGE);
     }
-    throw new Error(metaError.message || "?? ??????? ????????? ?????? ? Supabase");
+    throw new Error(metaError.message || "Не удалось обновить данные в Supabase");
   }
 
   try {
@@ -1120,9 +1125,9 @@ const saveFullState = async (payload, providedStore = null) => {
     await deleteMissingRows(client, store.tables.moneyTabs, tabRows.map((row) => row.id));
   } catch (error) {
     if (isMissingSupabaseTableError(error)) {
-      throw new Error("? Supabase ?? ??????? ????? ????? ?????? ?????????");
+      throw new Error(SUPABASE_SCHEMA_MESSAGE);
     }
-    throw new Error(error.message || "?? ??????? ????????? ?????? ? Supabase");
+    throw new Error(error.message || "Не удалось сохранить данные в Supabase");
   }
 
   return { ok: true };
@@ -1181,7 +1186,7 @@ const saveMetaState = async (store, state) => {
   const { error } = await store.client.from(store.tables.meta).upsert(metaRow, { onConflict: "id" });
   if (error) {
     if (isMissingSupabaseTableError(error)) {
-      throw new Error("Supabase schema is not ready");
+      throw new Error(SUPABASE_SCHEMA_MESSAGE);
     }
     throw new Error(error.message || "Supabase request failed");
   }
@@ -1319,7 +1324,7 @@ const saveStateSlices = async (previousState, nextState) => {
     await Promise.all(tasks);
   } catch (error) {
     if (isMissingSupabaseTableError(error)) {
-      throw new Error("Supabase schema is not ready");
+      throw new Error(SUPABASE_SCHEMA_MESSAGE);
     }
     throw new Error(error.message || "Supabase request failed");
   }
@@ -1410,6 +1415,8 @@ const dateMatchesEntry = (entry, date) => {
 const findEntryForDate = (entries, date) => {
   const exact = entries.find((entry) => entry.date === date);
   if (exact) return exact;
+  const weekly = entries.find((entry) => entry.repeatWeekly && dateMatchesEntry(entry, date));
+  if (weekly) return weekly;
   return entries.find((entry) => entry.repeatMonthly && entry.date.slice(8, 10) === date.slice(8, 10)) || null;
 };
 
@@ -1607,6 +1614,16 @@ function App() {
         setState((current) => mergeStatePatch(current, {
           ...patch,
           view: current.view,
+          calendarMonth: current.calendarMonth || patch.calendarMonth,
+          plannerSelectedDate: current.plannerSelectedDate || patch.plannerSelectedDate,
+          dogsSelectedDate: current.dogsSelectedDate || patch.dogsSelectedDate,
+          moneyActiveTabId: current.moneyActiveTabId || patch.moneyActiveTabId,
+          feedFilters: current.feedFilters,
+          settings: {
+            ...current.settings,
+            ...(patch.settings || {}),
+            theme: getStoredTheme(),
+          },
         }));
         setLoadedSlices((current) => ({
           ...current,
@@ -2091,6 +2108,7 @@ function App() {
           <button
             key=${item.id}
             type="button"
+            data-testid=${`bottom-nav-${item.id}`}
             className=${`bottom-nav__item${state.view === item.id ? " is-active" : ""}`}
             onClick=${() => setView(item.id)}
             disabled=${saving}
@@ -2101,6 +2119,7 @@ function App() {
         `)}
         <button
           type="button"
+          data-testid="bottom-nav-settings"
           className=${`bottom-nav__item${settingsOpen ? " is-active" : ""}`}
           onClick=${() => setSettingsOpen((value) => !value)}
           disabled=${saving}
@@ -2112,7 +2131,7 @@ function App() {
 
       ${settingsOpen ? html`
         <div className="settings-drawer-backdrop" onClick=${() => setSettingsOpen(false)}>
-          <aside className="settings-drawer" onClick=${(event) => event.stopPropagation()}>
+          <aside className="settings-drawer" data-testid="settings-drawer" onClick=${(event) => event.stopPropagation()}>
             <div className="settings-drawer__head">
               <strong>Настройки</strong>
             </div>
@@ -2159,7 +2178,7 @@ function LoginPage({ saving, onSubmit }) {
   const [password, setPassword] = useState("");
 
   return html`
-    <main className="auth-shell">
+    <main className="auth-shell" data-testid="login-page">
       <section className="auth-card">
         <div className="auth-copy">
           <h1>Вход</h1>
@@ -2188,6 +2207,7 @@ function LoginPage({ saving, onSubmit }) {
         <button
           type="button"
           className="button button--blue auth-button"
+          data-testid="login-submit"
           onClick=${() => onSubmit({ role, password })}
           disabled=${saving || !password}
         >
@@ -2201,7 +2221,7 @@ function LoginPage({ saving, onSubmit }) {
 
 function LoadingPage() {
   return html`
-    <main className="page">
+    <main className="page" data-testid="loading-page">
       <section className="panel skeleton-panel">
         <div className="skeleton skeleton-title"></div>
         <div className="skeleton skeleton-line"></div>
@@ -2239,7 +2259,7 @@ function ConfirmDialog({
         if (!saving) onCancel();
       }}
     >
-      <section className="confirm-dialog" onClick=${(event) => event.stopPropagation()}>
+      <section className="confirm-dialog" data-testid="confirm-dialog" onClick=${(event) => event.stopPropagation()}>
         <div className="confirm-dialog__head">
           <strong>${title}</strong>
         </div>
@@ -2262,12 +2282,11 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   const selectedDate = state[dateKey] || todayISO();
   const entries = state[listKey];
   const activeEntry = useMemo(() => findEntryForDate(entries, selectedDate), [entries, selectedDate]);
-  const [editing, setEditing] = useState(!activeEntry);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ text: "", amount: "", repeatMonthly: false, repeatWeekly: false });
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
-    setEditing(!activeEntry);
     setDraft({
       text: activeEntry?.text || "",
       amount: activeEntry?.amount ?? "",
@@ -2277,11 +2296,17 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
     setConfirmDeleteOpen(false);
   }, [activeEntry?.id, activeEntry?.updatedAt, selectedDate]);
 
+  const openEditor = () => setEditing(true);
+  const closeEditor = () => setEditing(false);
+
   const saveEntry = async () => {
     const timestamp = nowISO();
+    const sourceDate = activeEntry?.repeatMonthly || activeEntry?.repeatWeekly
+      ? activeEntry.date
+      : selectedDate;
     const nextEntry = normalizeEntry({
       id: activeEntry?.id || uid(kind),
-      date: (activeEntry?.repeatMonthly || activeEntry?.repeatWeekly) ? activeEntry.date : selectedDate,
+      date: (draft.repeatMonthly || draft.repeatWeekly) ? sourceDate : selectedDate,
       text: draft.text.trim(),
       amount: kind === "planner" ? String(draft.amount ?? "").trim() : "",
       repeatMonthly: draft.repeatMonthly,
@@ -2316,14 +2341,22 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   };
 
   const entryMeta = actorStamp(activeEntry?.updatedBy || activeEntry?.createdBy, activeEntry?.updatedAt || activeEntry?.createdAt);
+  const summaryText = activeEntry?.repeatWeekly
+    ? "Повторяется каждую неделю"
+    : activeEntry?.repeatMonthly
+      ? "Повторяется каждый месяц"
+      : formatDate(selectedDate);
+  const modalTitle = activeEntry
+    ? (kind === "planner" ? "Редактировать событие" : "Редактировать запись")
+    : (kind === "planner" ? "Новое событие" : "Новая запись");
 
   return html`
-    <main className="page">
+    <main className="page" data-testid=${`${kind}-page`}>
       <section className="panel note-panel">
         <div className="page-head">
           <div>
             <h2>${title}</h2>
-            <p>${activeEntry ? (activeEntry.repeatMonthly ? "Повторяется каждый месяц" : formatDate(selectedDate)) : `Новая запись на ${formatDate(selectedDate)}`}</p>
+            <p>${activeEntry ? summaryText : `Новая запись на ${formatDate(selectedDate)}`}</p>
           </div>
 
           <div className="note-toolbar">
@@ -2337,16 +2370,14 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
               />
             </label>
 
-            ${!editing && html`
-              <button type="button" className="button button--blue button--equal" onClick=${() => setEditing(true)} disabled=${saving}>Редактировать</button>
-            `}
-
-            ${editing && html`
-              <button type="button" className="button button--red button--equal" onClick=${saveEntry} disabled=${saving || !draft.text.trim()}>
-                ${saving ? html`<${ButtonSpinner} />` : null}
-                <span>${saving ? "Сохранение..." : "Сохранить"}</span>
-              </button>
-            `}
+            ${!editing && activeEntry ? html`
+              <button
+                type="button"
+                className="button button--blue button--equal"
+                onClick=${openEditor}
+                disabled=${saving}
+              >${activeEntry ? "Редактировать" : (kind === "planner" ? "Добавить событие" : "Добавить запись")}</button>
+            ` : null}
 
             ${activeEntry ? html`
               <button
@@ -2360,74 +2391,11 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
         </div>
 
         <div className="editor-card">
-          ${editing ? html`
-            <div className="editor-stack">
-              ${kind === "planner" ? html`
-                <div className="field-row">
-                  <label className="field field--compact">
-                    <span>Сумма</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.01"
-                      value=${draft.amount}
-                      onInput=${(event) => setDraft((current) => ({ ...current, amount: event.target.value }))}
-                      placeholder="0"
-                      disabled=${saving}
-                    />
-                  </label>
-                </div>
-              ` : null}
-
-              <textarea
-                className="editor-textarea"
-                value=${draft.text}
-                onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
-                placeholder=${kind === "planner" ? "Опишите событие, встречу, платеж или договоренность" : "Запишите заметку"}
-                disabled=${saving}
-              ></textarea>
-
-              <div className="editor-checks">
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked=${draft.repeatMonthly}
-                    onChange=${(event) => setDraft((current) => ({
-                      ...current,
-                      repeatMonthly: event.target.checked,
-                      repeatWeekly: event.target.checked ? false : current.repeatWeekly,
-                    }))}
-                    disabled=${saving}
-                  />
-                  <span>Повторять ежемесячно</span>
-                </label>
-
-                ${kind === "planner" ? html`
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked=${draft.repeatWeekly}
-                      onChange=${(event) => setDraft((current) => ({
-                        ...current,
-                        repeatWeekly: event.target.checked,
-                        repeatMonthly: event.target.checked ? false : current.repeatMonthly,
-                      }))}
-                      disabled=${saving}
-                    />
-                    <span>Повторять еженедельно</span>
-                  </label>
-                ` : null}
-              </div>
-            </div>
-          ` : html`
+          ${activeEntry ? html`
             <div className="note-view">
               <div className="note-pill-row">
                 <div className="note-date-pill">
-                  ${activeEntry?.repeatWeekly
-                    ? "Каждую неделю"
-                    : activeEntry?.repeatMonthly
-                      ? "Каждый месяц"
-                      : formatDate(selectedDate)}
+                  ${summaryText}
                 </div>
                 ${kind === "planner" && activeEntry?.amount ? html`
                   <div className="note-date-pill note-date-pill--amount">${formatMoney(parseMoneyInput(activeEntry.amount))}</div>
@@ -2436,8 +2404,18 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
               <div className="note-text">${activeEntry?.text || "На эту дату пока нет записи."}</div>
               ${entryMeta ? html`<div className="meta-line">Обновил: ${entryMeta}</div>` : null}
             </div>
+          ` : html`
+            <div className="empty-state empty-state--soft note-empty">
+              <p>${kind === "planner" ? "На эту дату событий пока нет." : "На эту дату записей пока нет."}</p>
+              ${!editing ? html`
+                <button type="button" className="button button--blue" onClick=${openEditor} disabled=${saving}>
+                  ${kind === "planner" ? "Добавить событие" : "Добавить запись"}
+                </button>
+              ` : null}
+            </div>
           `}
         </div>
+
         <${ConfirmDialog}
           open=${confirmDeleteOpen}
           saving=${saving}
@@ -2447,6 +2425,115 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
           onCancel=${() => setConfirmDeleteOpen(false)}
           onConfirm=${deleteEntry}
         />
+
+        ${editing ? html`
+          <div className="modal-backdrop note-modal-backdrop" onClick=${() => {
+            if (!saving) closeEditor();
+          }}>
+            <section
+              className="modal-sheet modal-sheet--event"
+              data-testid=${`${kind}-modal`}
+              onClick=${(event) => event.stopPropagation()}
+            >
+              <div className="modal-head">
+                <div>
+                  <h3>${modalTitle}</h3>
+                  <p>${formatDate(selectedDate)}</p>
+                </div>
+                <button type="button" className="modal-close" onClick=${closeEditor} disabled=${saving}>×</button>
+              </div>
+
+              <div className="modal-sheet__body modal-sheet__body--event">
+                <label className="date-field">
+                  <span>Дата</span>
+                  <input
+                    type="date"
+                    value=${selectedDate}
+                    onInput=${(event) => onLocalChange({ ...state, [dateKey]: event.target.value || todayISO() })}
+                    disabled=${saving}
+                  />
+                </label>
+
+                ${kind === "planner" ? html`
+                  <div className="field-row">
+                    <label className="field field--compact">
+                      <span>Сумма</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        value=${draft.amount}
+                        onInput=${(event) => setDraft((current) => ({ ...current, amount: event.target.value }))}
+                        placeholder="0"
+                        disabled=${saving}
+                      />
+                    </label>
+                  </div>
+                ` : null}
+
+                <textarea
+                  className="editor-textarea editor-textarea--event"
+                  value=${draft.text}
+                  onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+                  placeholder=${kind === "planner" ? "Опишите событие, встречу, платеж или договоренность" : "Запишите заметку"}
+                  disabled=${saving}
+                ></textarea>
+
+                <div className="editor-checks editor-checks--event">
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked=${draft.repeatMonthly}
+                      onChange=${(event) => setDraft((current) => ({
+                        ...current,
+                        repeatMonthly: event.target.checked,
+                        repeatWeekly: event.target.checked ? false : current.repeatWeekly,
+                      }))}
+                      disabled=${saving}
+                    />
+                    <span>Повторять ежемесячно</span>
+                  </label>
+
+                  ${kind === "planner" ? html`
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked=${draft.repeatWeekly}
+                        onChange=${(event) => setDraft((current) => ({
+                          ...current,
+                          repeatWeekly: event.target.checked,
+                          repeatMonthly: event.target.checked ? false : current.repeatMonthly,
+                        }))}
+                        disabled=${saving}
+                      />
+                      <span>Повторять еженедельно</span>
+                    </label>
+                  ` : null}
+                </div>
+              </div>
+
+              <div className="modal-actions modal-actions--event">
+                <div className="modal-actions__side">
+                  ${activeEntry ? html`
+                    <button
+                      type="button"
+                      className="button button--ghost danger-ghost"
+                      onClick=${() => setConfirmDeleteOpen(true)}
+                      disabled=${saving}
+                    >Удалить</button>
+                  ` : null}
+                </div>
+                <div className="modal-actions__side modal-actions__side--end">
+                  <button type="button" className="button button--ghost" onClick=${closeEditor} disabled=${saving}>Отмена</button>
+                  <button type="button" className="button button--red" onClick=${saveEntry} disabled=${saving || !draft.text.trim()}>
+                    ${saving ? html`<${ButtonSpinner} />` : null}
+                    <span>${saving ? "Сохранение..." : "Сохранить"}</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        ` : null}
       </section>
     </main>
   `;
@@ -2468,6 +2555,11 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
   const isArchived = state.feedFilters.mode === "archived";
   const commentsPost = posts.find((post) => post.id === commentsPostId) || null;
   const editingPost = state.posts.find((post) => post.id === editingPostId) || null;
+
+  useEffect(() => {
+    document.body.classList.toggle("has-comments-sheet", Boolean(commentsPostId));
+    return () => document.body.classList.remove("has-comments-sheet");
+  }, [commentsPostId]);
 
   const persistPostComments = (postId, updater, message) => {
     const timestamp = nowISO();
@@ -2656,6 +2748,16 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
     setEditingPostId("");
   };
 
+  const openLightbox = (event, image) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const maxTop = Math.max(Math.round(window.innerHeight * 0.28), 24);
+    setLightbox({
+      src: imageSrc(image),
+      alt: getImageLabel(image, "Просмотр изображения"),
+      top: Math.min(Math.max(Math.round(rect.top) - 8, 12), maxTop),
+    });
+  };
+
   const renderCommentThread = (postId, comments, parentId = "", depth = 0) => comments
     .filter((comment) => (comment.parentId || "") === parentId)
     .map((comment) => {
@@ -2752,11 +2854,12 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
     });
 
   return html`
-    <main className="page page--wide feed-mobile-page">
+    <main className="page page--wide feed-mobile-page" data-testid="feed-page">
       <section className="panel composer-bar feed-mobile-composer">
         <button
           type="button"
           className="create-post create-post--wide"
+          data-testid="create-post"
           onClick=${() => {
             setEditingPostId("");
             setModalOpen(true);
@@ -2868,7 +2971,12 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
               ${post.images?.length ? html`
                 <div className=${`post-gallery gallery-${Math.min(post.images.length, 6)}`}>
                   ${post.images.map((image) => html`
-                    <button key=${image.path || image.publicUrl} type="button" className="gallery-item" onClick=${() => setLightbox(imageSrc(image))}>
+                    <button
+                      key=${image.path || image.publicUrl}
+                      type="button"
+                      className="gallery-item"
+                      onClick=${(event) => openLightbox(event, image)}
+                    >
                       <img src=${imageSrc(image)} alt="Изображение публикации" />
                     </button>
                   `)}
@@ -2904,7 +3012,7 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
 
       ${commentsPost && html`
         <div className="comments-sheet-backdrop" onClick=${closeComments}>
-          <section className="comments-sheet" onClick=${(event) => event.stopPropagation()}>
+          <section className="comments-sheet" data-testid="comments-sheet" onClick=${(event) => event.stopPropagation()}>
             <div className="comments-sheet__head">
               <div>
                 <h3>Комментарии</h3>
@@ -2994,10 +3102,15 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
       />
 
       ${lightbox && html`
-        <div className="lightbox" onClick=${() => setLightbox(null)}>
-          <div className="lightbox__frame" onClick=${(event) => event.stopPropagation()}>
+        <div
+          className="lightbox"
+          data-testid="image-lightbox"
+          style=${{ paddingTop: `${lightbox.top || 12}px` }}
+          onClick=${() => setLightbox(null)}
+        >
+          <div className="lightbox__frame" data-testid="image-lightbox-frame" onClick=${(event) => event.stopPropagation()}>
             <button type="button" className="modal-close lightbox__close" onClick=${() => setLightbox(null)}>×</button>
-            <img src=${lightbox} alt="Просмотр изображения" />
+            <img src=${lightbox.src} alt=${lightbox.alt || "Просмотр изображения"} />
           </div>
         </div>
       `}
@@ -3081,7 +3194,7 @@ function PostModal({ saving, onClose, onSubmit, initialPost = null }) {
 
   return html`
     <div className="modal-backdrop" onClick=${onClose}>
-      <div className="modal-sheet modal-sheet--post" onClick=${(event) => event.stopPropagation()}>
+      <div className="modal-sheet modal-sheet--post" data-testid="post-modal" onClick=${(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
             <h3>${isEditing ? "Редактировать пост" : "Новая запись"}</h3>
@@ -3227,7 +3340,7 @@ function CalendarPage({ state, onLocalChange }) {
   };
 
   return html`
-    <main className="page calendar-page">
+    <main className="page calendar-page" data-testid="calendar-page">
       <section className="panel calendar-panel">
         <div className="calendar-controls calendar-controls--compact">
           <button type="button" className="icon-button" onClick=${() => shiftMonth(-1)}>←</button>
@@ -3264,6 +3377,7 @@ function CalendarPage({ state, onLocalChange }) {
               <button
                 key=${day}
                 type="button"
+                data-testid=${`calendar-day-${day}`}
                 className=${`calendar-cell${selectedDate === day ? " is-active" : ""}`}
                 onClick=${() => setSelectedDate(day)}
               >
@@ -3764,7 +3878,7 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
   };
 
   return html`
-    <main className="page">
+    <main className="page" data-testid="money-page">
       <section className="panel money-panel">
         ${tab ? html`
           <div className="money-mini-head money-mini-head--clean">
@@ -3830,6 +3944,7 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
             <button
               key=${item.id}
               type="button"
+              data-testid=${`money-tab-collapsed-${item.id}`}
               className="money-tabs__item money-tabs__item--collapsed"
               onClick=${() => onSelectTab(item.id)}
               disabled=${saving}
@@ -3842,15 +3957,15 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                   type="text"
                   value=${draftTitle}
                   onInput=${(event) => setDraftTitle(event.target.value)}
-                  placeholder="РќР°Р·РІР°РЅРёРµ РІРєР»Р°РґРєРё"
+                  placeholder="Название вкладки"
                   disabled=${saving}
                 />
-                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>вњ“</button>
-                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>Г—</button>
+                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
+                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
               </div>
             `
             : html`
-              <button type="button" className="money-tab-create" onClick=${startCreate} disabled=${saving} aria-label="РЎРѕР·РґР°С‚СЊ РїР»Р°РЅ">
+              <button type="button" className="money-tab-create" data-testid="money-tab-create" onClick=${startCreate} disabled=${saving} aria-label="Создать план">
                 <${AppIcon} name="plus" size=${18} />
               </button>
             `}
