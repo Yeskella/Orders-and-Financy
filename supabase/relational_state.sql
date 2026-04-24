@@ -17,6 +17,7 @@ create table if not exists public.planner_entries (
   amount text not null default '',
   repeat_monthly boolean not null default false,
   repeat_weekly boolean not null default false,
+  repeat_yearly boolean not null default false,
   created_at text not null default '',
   created_by text not null default '',
   updated_at text not null default '',
@@ -31,6 +32,9 @@ alter table public.planner_entries
 
 alter table public.planner_entries
   add column if not exists repeat_weekly boolean not null default false;
+
+alter table public.planner_entries
+  add column if not exists repeat_yearly boolean not null default false;
 
 create table if not exists public.dogs_entries (
   id text primary key,

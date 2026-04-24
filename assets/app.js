@@ -239,6 +239,7 @@ const DEFAULT_STATE = {
     theme: "light",
     lastSyncedAt: "",
     lastUpdatedBy: "",
+    feedSeenBy: {},
   },
   view: "calendar",
   calendarMonth: "",
@@ -341,7 +342,159 @@ const validateView = (view, customTabs) => {
   return "calendar";
 };
 
+const resetFeedModeForView = (current, nextView) => (
+  nextView === "plans" && current.feedFilters?.mode !== "active"
+    ? {
+      ...current,
+      feedFilters: {
+        ...current.feedFilters,
+        mode: "active",
+      },
+    }
+    : current
+);
+
 const toMonthKey = (date) => (date || todayISO()).slice(0, 7);
+
+const RF_2026_EXTRA_NON_WORKING_DAYS = new Set([
+  "2026-01-01",
+  "2026-01-02",
+  "2026-01-03",
+  "2026-01-04",
+  "2026-01-05",
+  "2026-01-06",
+  "2026-01-07",
+  "2026-01-08",
+  "2026-01-09",
+  "2026-02-23",
+  "2026-03-09",
+  "2026-05-01",
+  "2026-05-11",
+  "2026-06-12",
+  "2026-11-04",
+  "2026-12-31",
+]);
+
+const PAYROLL_BY_ROLE = {
+  Lesha: 260000,
+  Lera: 220000,
+};
+
+const toDateFromIso = (value) => new Date(`${value}T12:00:00`);
+
+const getIsoWeekday = (value) => {
+  const day = toDateFromIso(value).getDay();
+  return day === 0 ? 7 : day;
+};
+
+const isWeekendDay = (value) => {
+  const weekday = getIsoWeekday(value);
+  return weekday === 6 || weekday === 7;
+};
+
+const daysInMonth = (monthKey) => {
+  const [year, month] = String(monthKey).split("-").map(Number);
+  return new Date(year, month, 0).getDate();
+};
+
+const monthStart = (monthKey) => `${monthKey}-01`;
+const monthEnd = (monthKey) => `${monthKey}-${String(daysInMonth(monthKey)).padStart(2, "0")}`;
+
+const shiftIsoDate = (value, days) => {
+  const date = toDateFromIso(value);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const shiftMonthKey = (monthKey, delta) => {
+  const date = toDateFromIso(`${monthKey}-01`);
+  date.setMonth(date.getMonth() + delta);
+  return date.toISOString().slice(0, 7);
+};
+
+const isRfNonWorkingDay = (value) => {
+  if (!value) return false;
+  if (isWeekendDay(value)) return true;
+  if (String(value).startsWith("2026-")) {
+    return RF_2026_EXTRA_NON_WORKING_DAYS.has(value);
+  }
+  return false;
+};
+
+const moveToPreviousWorkingDay = (value) => {
+  let current = value;
+  while (isRfNonWorkingDay(current)) {
+    current = shiftIsoDate(current, -1);
+  }
+  return current;
+};
+
+const getWorkingDaysCount = (start, end) => {
+  if (!start || !end || start > end) return 0;
+  let current = start;
+  let count = 0;
+  while (current <= end) {
+    if (!isRfNonWorkingDay(current)) {
+      count += 1;
+    }
+    current = shiftIsoDate(current, 1);
+  }
+  return count;
+};
+
+const getPayrollMonthBreakdown = (role, monthKey) => {
+  const salary = PAYROLL_BY_ROLE[role];
+  if (!salary || !monthKey) return null;
+
+  const monthFirstDay = monthStart(monthKey);
+  const monthLastDay = monthEnd(monthKey);
+  const firstHalfLastDay = `${monthKey}-15`;
+  const workingDaysInMonth = getWorkingDaysCount(monthFirstDay, monthLastDay);
+  const firstHalfWorkingDays = getWorkingDaysCount(monthFirstDay, firstHalfLastDay);
+  if (!workingDaysInMonth) return null;
+
+  const dayRate = salary / workingDaysInMonth;
+  const advance = Math.round(dayRate * firstHalfWorkingDays * 100) / 100;
+  const settlement = Math.round((salary - advance) * 100) / 100;
+
+  return {
+    role,
+    monthKey,
+    salary,
+    workingDaysInMonth,
+    firstHalfWorkingDays,
+    advance,
+    settlement,
+    advanceDate: moveToPreviousWorkingDay(firstHalfLastDay),
+    settlementDate: moveToPreviousWorkingDay(monthLastDay),
+  };
+};
+
+const getNearestPayroll = (role, today = todayISO()) => {
+  const currentMonth = toMonthKey(today);
+  const nextMonth = shiftMonthKey(currentMonth, 1);
+  const breakdowns = [getPayrollMonthBreakdown(role, currentMonth), getPayrollMonthBreakdown(role, nextMonth)].filter(Boolean);
+  const candidates = breakdowns.flatMap((item) => ([
+    {
+      kind: "advance",
+      label: "Аванс",
+      amount: item.advance,
+      date: item.advanceDate,
+      monthKey: item.monthKey,
+    },
+    {
+      kind: "settlement",
+      label: "Расчет",
+      amount: item.settlement,
+      date: item.settlementDate,
+      monthKey: item.monthKey,
+    },
+  ]))
+    .filter((item) => item.date >= today)
+    .sort((left, right) => left.date.localeCompare(right.date));
+
+  return candidates[0] || null;
+};
 
 const formatDate = (date) => {
   if (!date) return "";
@@ -351,6 +504,11 @@ const formatDate = (date) => {
 const formatShortDate = (date) => {
   if (!date) return "";
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`));
+};
+
+const formatMonthTitle = (monthKey) => {
+  if (!monthKey) return "";
+  return new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(new Date(`${monthKey}-01T12:00:00`));
 };
 
 const formatTime = (value) => {
@@ -416,6 +574,106 @@ const formatMoney = (value) => new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 2,
 }).format(Number.isFinite(value) ? value : 0);
 
+const PLANNER_EVENT_TEXT_PREFIX = "__BFP_EVENT_V2__:";
+
+const createPlannerDraftRow = (row = {}) => ({
+  id: row.id || uid("planner-row"),
+  text: String(row.text || ""),
+  amount: String(row.amount ?? ""),
+});
+
+const pluralizeRu = (value, one, few, many) => {
+  const abs = Math.abs(Number(value) || 0);
+  const mod100 = abs % 100;
+  const mod10 = abs % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+};
+
+const sortPlannerRows = (rows) => [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
+  const amountDiff = parseMoneyInput(right.amount) - parseMoneyInput(left.amount);
+  if (amountDiff !== 0) return amountDiff;
+  return String(left.text || "").localeCompare(String(right.text || ""), "ru", { sensitivity: "base" });
+});
+
+const parsePlannerEntryRows = (entry) => {
+  if (!entry) return [];
+  const rawText = String(entry.text || "");
+
+  if (rawText.startsWith(PLANNER_EVENT_TEXT_PREFIX)) {
+    try {
+      const parsed = JSON.parse(rawText.slice(PLANNER_EVENT_TEXT_PREFIX.length));
+      const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+      return sortPlannerRows(
+        rows
+          .map((row) => createPlannerDraftRow(row))
+          .filter((row) => String(row.text || "").trim())
+      );
+    } catch (_) {
+      return [createPlannerDraftRow({
+        id: `${entry.id || "planner"}-broken`,
+        text: rawText.slice(PLANNER_EVENT_TEXT_PREFIX.length),
+        amount: entry.amount ?? "",
+      })];
+    }
+  }
+
+  if (!String(entry.text || "").trim()) {
+    return [];
+  }
+
+  return [createPlannerDraftRow({
+    id: `${entry.id || "planner"}-legacy`,
+    text: entry.text || "",
+    amount: entry.amount ?? "",
+  })];
+};
+
+const getPlannerRowsTotal = (rows) => sortPlannerRows(rows)
+  .reduce((total, row) => total + parseMoneyInput(row.amount), 0);
+
+const buildPlannerEntryPayload = (rows) => {
+  const prepared = sortPlannerRows(
+    (Array.isArray(rows) ? rows : [])
+      .map((row) => ({
+        text: String(row.text || "").trim(),
+        amount: String(row.amount ?? "").trim(),
+      }))
+      .filter((row) => row.text)
+  );
+
+  if (!prepared.length) {
+    return { text: "", amount: "" };
+  }
+
+  if (prepared.length === 1) {
+    return {
+      text: prepared[0].text,
+      amount: prepared[0].amount,
+    };
+  }
+
+  return {
+    text: `${PLANNER_EVENT_TEXT_PREFIX}${JSON.stringify({ rows: prepared })}`,
+    amount: String(getPlannerRowsTotal(prepared)),
+  };
+};
+
+const getPlannerEntryRows = (entry) => parsePlannerEntryRows(entry);
+const getPlannerEntryTotal = (entry) => getPlannerRowsTotal(getPlannerEntryRows(entry));
+const getPlannerEntryPrimaryText = (entry) => {
+  const rows = getPlannerEntryRows(entry);
+  if (!rows.length) {
+    return String(entry?.text || "").trim() || "Событие";
+  }
+  const primary = rows[0];
+  return rows.length > 1
+    ? `${primary.text} +${rows.length - 1}`
+    : primary.text;
+};
+
 const actorStamp = (actor, at) => {
   if (!actor && !at) return "";
   return [actor, at ? formatTime(at) : ""].filter(Boolean).join(" • ");
@@ -457,6 +715,7 @@ const normalizeEntry = (entry, prefix) => ({
   amount: entry?.amount ?? "",
   repeatMonthly: Boolean(entry?.repeatMonthly),
   repeatWeekly: Boolean(entry?.repeatWeekly),
+  repeatYearly: Boolean(entry?.repeatYearly),
   createdAt: entry?.createdAt || entry?.updatedAt || "",
   createdBy: entry?.createdBy || "",
   updatedAt: entry?.updatedAt || "",
@@ -583,6 +842,9 @@ const normalizeState = (payload = {}) => {
       theme: payload.settings?.theme || DEFAULT_STATE.settings.theme,
       lastSyncedAt: payload.settings?.lastSyncedAt || "",
       lastUpdatedBy: payload.settings?.lastUpdatedBy || "",
+      feedSeenBy: payload.settings?.feedSeenBy && typeof payload.settings.feedSeenBy === "object"
+        ? payload.settings.feedSeenBy
+        : {},
     },
     view: nextView,
     calendarMonth: payload.calendarMonth || "",
@@ -760,6 +1022,7 @@ const mergeStatePatch = (current, patch = {}) => normalizeState({
   settings: hasOwn(patch, "settings") ? {
     ...current.settings,
     ...patch.settings,
+    feedSeenBy: mergeFeedSeenBy(current.settings?.feedSeenBy, patch.settings?.feedSeenBy),
     theme: current.settings?.theme || getStoredTheme(),
   } : current.settings,
   view: hasOwn(patch, "view") ? patch.view : current.view,
@@ -809,6 +1072,7 @@ const fetchEntriesSlice = async (store, table, key) => {
       amount: table === store.tables.planner ? (entry.amount ?? "") : "",
       repeatMonthly: Boolean(entry.repeat_monthly),
       repeatWeekly: table === store.tables.planner ? Boolean(entry.repeat_weekly) : false,
+      repeatYearly: table === store.tables.planner ? Boolean(entry.repeat_yearly) : false,
       createdAt: entry.created_at || "",
       createdBy: entry.created_by || "",
       updatedAt: entry.updated_at || "",
@@ -1020,6 +1284,7 @@ const saveFullState = async (payload, providedStore = null) => {
     amount: entry.amount ?? "",
     repeat_monthly: Boolean(entry.repeatMonthly),
     repeat_weekly: Boolean(entry.repeatWeekly),
+    repeat_yearly: Boolean(entry.repeatYearly),
     created_at: entry.createdAt || "",
     created_by: entry.createdBy || "",
     updated_at: entry.updatedAt || "",
@@ -1209,6 +1474,7 @@ const saveEntriesSlice = async (store, table, entries) => {
         ...base,
         amount: entry.amount ?? "",
         repeat_weekly: Boolean(entry.repeatWeekly),
+        repeat_yearly: Boolean(entry.repeatYearly),
       };
     }
     return base;
@@ -1409,6 +1675,9 @@ const dateMatchesEntry = (entry, date) => {
   if (entry.repeatMonthly) {
     return entry.date.slice(8, 10) === date.slice(8, 10);
   }
+  if (entry.repeatYearly) {
+    return entry.date.slice(5, 10) === date.slice(5, 10);
+  }
   return entry.date === date;
 };
 
@@ -1417,7 +1686,9 @@ const findEntryForDate = (entries, date) => {
   if (exact) return exact;
   const weekly = entries.find((entry) => entry.repeatWeekly && dateMatchesEntry(entry, date));
   if (weekly) return weekly;
-  return entries.find((entry) => entry.repeatMonthly && entry.date.slice(8, 10) === date.slice(8, 10)) || null;
+  const monthly = entries.find((entry) => entry.repeatMonthly && dateMatchesEntry(entry, date));
+  if (monthly) return monthly;
+  return entries.find((entry) => entry.repeatYearly && dateMatchesEntry(entry, date)) || null;
 };
 
 const upsertEntry = (entries, nextEntry) => {
@@ -1441,27 +1712,93 @@ const sortedPosts = (posts, filters) => {
   return filters.mode === "archived" ? regular : [...pinned, ...regular];
 };
 
+const getFeedSeenBy = (settings) => (
+  settings?.feedSeenBy && typeof settings.feedSeenBy === "object" && !Array.isArray(settings.feedSeenBy)
+    ? settings.feedSeenBy
+    : {}
+);
+
+const mergeFeedSeenBy = (current, incoming) => {
+  const left = getFeedSeenBy({ feedSeenBy: current });
+  const right = getFeedSeenBy({ feedSeenBy: incoming });
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  const merged = {};
+
+  keys.forEach((key) => {
+    const leftValue = String(left[key] || "");
+    const rightValue = String(right[key] || "");
+    if (!leftValue) {
+      merged[key] = rightValue;
+    } else if (!rightValue) {
+      merged[key] = leftValue;
+    } else {
+      merged[key] = new Date(leftValue).getTime() >= new Date(rightValue).getTime()
+        ? leftValue
+        : rightValue;
+    }
+  });
+
+  return merged;
+};
+
+const getFeedSeenAt = (settings, actor) => (actor ? String(getFeedSeenBy(settings)[actor] || "") : "");
+
+const isPostOwnedByActor = (post, actor) => (post?.createdBy || post?.author || "") === (actor || "");
+
+const getPostFreshStamp = (post) => post?.updatedAt || post?.createdAt || "";
+
+const isPostUnreadForActor = (post, actor, settings) => {
+  if (!actor || !post || post.archived || isPostOwnedByActor(post, actor)) {
+    return false;
+  }
+
+  const stamp = getPostFreshStamp(post);
+  if (!stamp) {
+    return false;
+  }
+
+  const seenAt = getFeedSeenAt(settings, actor);
+  if (!seenAt) {
+    return true;
+  }
+
+  return new Date(stamp).getTime() > new Date(seenAt).getTime();
+};
+
+const getUnreadPostsForActor = (posts, actor, settings) => (Array.isArray(posts) ? posts : [])
+  .filter((post) => isPostUnreadForActor(post, actor, settings));
+
 const inRange = (date, start, end) => date >= start && date <= end;
 
 const collectEventsForDate = (state, date) => {
   const items = [];
-  state.plannerEntries.forEach((entry) => {
+  sortPlannerRows(state.plannerEntries.map((entry) => ({
+    ...entry,
+    amount: getPlannerEntryTotal(entry),
+    text: getPlannerEntryPrimaryText(entry),
+  }))).forEach((entry) => {
+    const sourceEntry = state.plannerEntries.find((candidate) => candidate.id === entry.id);
+    if (!sourceEntry) return;
     if (dateMatchesEntry(entry, date)) {
       items.push({
-        id: `${entry.id}-${date}`,
+        id: `${sourceEntry.id}-${date}`,
+        countKey: `${sourceEntry.id}-${date}`,
+        sourceId: sourceEntry.id,
         type: "planner",
         label: "Событие",
-        text: entry.text,
-        entry,
+        text: getPlannerEntryPrimaryText(sourceEntry),
+        entry: sourceEntry,
       });
     }
   });
-  state.posts.filter((post) => !post.archived).forEach((post) => {
+  state.posts.forEach((post) => {
     const start = post.startDate || "";
     const end = post.endDate || start;
     if (start && end && inRange(date, start, end)) {
       items.push({
         id: `${post.id}-${date}`,
+        countKey: post.id,
+        sourceId: post.id,
         type: "post",
         label: "Лента",
         text: post.text || "Публикация",
@@ -1469,7 +1806,14 @@ const collectEventsForDate = (state, date) => {
       });
     }
   });
-  return items;
+  return items.sort((left, right) => {
+    if (left.type === "planner" && right.type === "planner") {
+      return getPlannerEntryTotal(right.entry) - getPlannerEntryTotal(left.entry);
+    }
+    if (left.type === "planner") return -1;
+    if (right.type === "planner") return 1;
+    return compareDesc(left.post?.updatedAt || left.post?.createdAt || "", right.post?.updatedAt || right.post?.createdAt || "");
+  });
 };
 
 const previewEventsForDate = (state, date) => collectEventsForDate(state, date)
@@ -1478,7 +1822,7 @@ const previewEventsForDate = (state, date) => collectEventsForDate(state, date)
     id: item.id,
     type: item.type,
     label: item.type === "planner" && item.entry?.amount
-      ? `${item.text.split("\n")[0].trim() || item.label} · ${formatMoney(parseMoneyInput(item.entry.amount))}`
+      ? `${getPlannerEntryPrimaryText(item.entry)} · ${formatMoney(getPlannerEntryTotal(item.entry))}`
       : (item.text.split("\n")[0].trim() || item.label),
   }));
 
@@ -1517,6 +1861,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authSaving, setAuthSaving] = useState(false);
   const loadedSlicesRef = useRef({});
+  const feedSeenSaveKeyRef = useRef("");
 
   useEffect(() => {
     document.title = "My Family Planner";
@@ -1539,7 +1884,7 @@ function App() {
       setState((current) => {
         const nextView = validateView(routeToView(window.location.hash), current.customTabs);
         setStoredView(nextView);
-        return { ...current, view: nextView };
+        return resetFeedModeForView({ ...current, view: nextView }, nextView);
       });
     };
 
@@ -1568,14 +1913,14 @@ function App() {
         setStoredView(view);
         window.history.replaceState(null, "", toHash(view));
         setLoadedSlices(Object.fromEntries(initialSlices.map((slice) => [slice, true])));
-        setState({
+        setState(resetFeedModeForView({
           ...merged,
           view,
           settings: {
             ...merged.settings,
             theme: getStoredTheme(),
           },
-        });
+        }, view));
       })
       .catch((error) => {
         if (!alive) return;
@@ -1662,17 +2007,62 @@ function App() {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [themeMenuOpen]);
 
+  const unreadFeedPosts = useMemo(
+    () => getUnreadPostsForActor(state.posts, session?.role || "", state.settings),
+    [session?.role, state.posts, state.settings.feedSeenBy],
+  );
+
+  useEffect(() => {
+    if (loading || state.view !== "plans" || !session?.role || !unreadFeedPosts.length) {
+      return undefined;
+    }
+
+    const seenKey = `${session.role}:${unreadFeedPosts.map((post) => `${post.id}:${getPostFreshStamp(post)}`).join("|")}`;
+    if (feedSeenSaveKeyRef.current === seenKey) {
+      return undefined;
+    }
+    feedSeenSaveKeyRef.current = seenKey;
+
+    const timestamp = nowISO();
+    let nextState = null;
+
+    setState((current) => {
+      nextState = normalizeState({
+        ...current,
+        settings: {
+          ...current.settings,
+          feedSeenBy: {
+            ...getFeedSeenBy(current.settings),
+            [session.role]: timestamp,
+          },
+        },
+      });
+      return nextState;
+    });
+
+    if (nextState) {
+      saveMetaState(getSupabaseStateStore(), nextState).catch((error) => {
+        setToast({ tone: "danger", text: error.message });
+      });
+    }
+
+    return undefined;
+  }, [loading, session?.role, state.view, unreadFeedPosts]);
+
   const applyLocal = (updater) => {
     setState((current) => normalizeState(typeof updater === "function" ? updater(current) : updater));
   };
 
   const setView = (view) => {
     const nextView = validateView(view, state.customTabs);
+    if (nextView === state.view) {
+      return;
+    }
     setStoredView(nextView);
     window.history.replaceState(null, "", toHash(nextView));
     setViewRefreshToken((current) => current + 1);
     setSettingsOpen(false);
-    setState((current) => ({ ...current, view: nextView }));
+    setState((current) => resetFeedModeForView({ ...current, view: nextView }, nextView));
   };
 
   const selectMoneyTab = (tabId) => {
@@ -1985,6 +2375,10 @@ function App() {
   const activeMoneyTab = state.customTabs.find((tab) => tab.id === state.moneyActiveTabId) || state.customTabs[0] || null;
   const currentViewReady = getRequiredSlicesForView(state.view).every((slice) => loadedSlices[slice]);
   const pageLoading = loading || sliceLoading || !currentViewReady;
+  const payrollToday = todayISO();
+  const nearestPayroll = getNearestPayroll(session?.role || "", payrollToday);
+  const payrollMonth = nearestPayroll?.monthKey || toMonthKey(payrollToday);
+  const payrollBreakdown = getPayrollMonthBreakdown(session?.role || "", payrollMonth);
 
   let page = html`<${LoadingPage} />`;
   if (!pageLoading && !session) {
@@ -2019,6 +2413,11 @@ function App() {
       <${CalendarPage}
         state=${state}
         onLocalChange=${applyLocal}
+        onSave=${persist}
+        onEditPost=${handleEditPost}
+        onDeletePost=${handleDeletePost}
+        saving=${saving}
+        actor=${session?.role || ""}
       />
     `;
   } else if (!pageLoading && state.view === "money") {
@@ -2113,7 +2512,12 @@ function App() {
             onClick=${() => setView(item.id)}
             disabled=${saving}
           >
-            <span className="bottom-nav__icon"><${AppIcon} name=${item.icon} active=${state.view === item.id} size=${24} /></span>
+            <span className="bottom-nav__icon">
+              <${AppIcon} name=${item.icon} active=${state.view === item.id} size=${24} />
+              ${item.id === "plans" && unreadFeedPosts.length
+                ? html`<span className="bottom-nav__badge" data-testid="bottom-nav-plans-badge" aria-hidden="true"></span>`
+                : null}
+            </span>
             <span className="bottom-nav__label">${item.label}</span>
           </button>
         `)}
@@ -2158,6 +2562,33 @@ function App() {
                 `)}
               </div>
             </section>
+
+            ${payrollBreakdown ? html`
+              <section className="settings-drawer__section">
+                <div className="settings-payroll" data-testid="settings-payroll">
+                  <div className="settings-payroll__label">Ближайшая зарплата</div>
+                  <div className="settings-payroll__next">
+                    <strong>${nearestPayroll ? `${nearestPayroll.label} · ${formatShortDate(nearestPayroll.date)}` : "Выплата не определена"}</strong>
+                    <span>Примерно ${formatMoney(nearestPayroll?.amount ?? 0)}</span>
+                  </div>
+                  <div className="settings-payroll__meta">
+                    ${formatMonthTitle(payrollBreakdown.monthKey)} · зарплата на руки ${formatMoney(payrollBreakdown.salary)}
+                  </div>
+                  <div className="settings-payroll__grid">
+                    <div className="settings-payroll__item">
+                      <strong>Аванс</strong>
+                      <span>${formatShortDate(payrollBreakdown.advanceDate)}</span>
+                      <b>${formatMoney(payrollBreakdown.advance)}</b>
+                    </div>
+                    <div className="settings-payroll__item">
+                      <strong>Расчет</strong>
+                      <span>${formatShortDate(payrollBreakdown.settlementDate)}</span>
+                      <b>${formatMoney(payrollBreakdown.settlement)}</b>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ` : null}
 
             <div className="settings-drawer__footer">
               <button type="button" className="button button--ghost settings-logout" onClick=${handleLogout} disabled=${saving}>
@@ -2283,34 +2714,125 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   const entries = state[listKey];
   const activeEntry = useMemo(() => findEntryForDate(entries, selectedDate), [entries, selectedDate]);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ text: "", amount: "", repeatMonthly: false, repeatWeekly: false });
+  const [draft, setDraft] = useState({ text: "", amount: "", repeatMonthly: false, repeatWeekly: false, repeatYearly: false });
+  const [draftRows, setDraftRows] = useState(() => [createPlannerDraftRow()]);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const draftRowsRef = useRef(draftRows);
+
+  const syncDraftRows = (updater) => {
+    setDraftRows((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      draftRowsRef.current = next;
+      return next;
+    });
+  };
 
   useEffect(() => {
-    setDraft({
-      text: activeEntry?.text || "",
-      amount: activeEntry?.amount ?? "",
-      repeatMonthly: Boolean(activeEntry?.repeatMonthly),
-      repeatWeekly: Boolean(activeEntry?.repeatWeekly),
-    });
-    setConfirmDeleteOpen(false);
-  }, [activeEntry?.id, activeEntry?.updatedAt, selectedDate]);
+    draftRowsRef.current = draftRows;
+  }, [draftRows]);
 
-  const openEditor = () => setEditing(true);
+  const resetDrafts = (entry = null) => {
+    const plannerRows = getPlannerEntryRows(entry);
+    setDraft({
+      text: kind === "planner" ? getPlannerEntryPrimaryText(entry) : (entry?.text || ""),
+      amount: kind === "planner" ? String(getPlannerEntryTotal(entry) || "") : (entry?.amount ?? ""),
+      repeatMonthly: Boolean(entry?.repeatMonthly),
+      repeatWeekly: Boolean(entry?.repeatWeekly),
+      repeatYearly: Boolean(entry?.repeatYearly),
+    });
+    syncDraftRows(
+      kind === "planner"
+        ? (plannerRows.length ? plannerRows.map((row) => createPlannerDraftRow(row)) : [createPlannerDraftRow()])
+        : [createPlannerDraftRow({
+          text: entry?.text || "",
+          amount: entry?.amount ?? "",
+        })]
+    );
+  };
+
+  useEffect(() => {
+    if (editing) return;
+    resetDrafts(activeEntry);
+    setConfirmDeleteOpen(false);
+  }, [activeEntry?.id, activeEntry?.updatedAt, selectedDate, editing]);
+
+  const openEditor = () => {
+    resetDrafts(activeEntry);
+    setEditing(true);
+  };
   const closeEditor = () => setEditing(false);
+
+  const addDraftRow = () => {
+    syncDraftRows((current) => [...current, createPlannerDraftRow()]);
+  };
+
+  const updateDraftRow = (rowId, patch) => {
+    syncDraftRows((current) => current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)));
+  };
+
+  const removeDraftRow = (rowId) => {
+    syncDraftRows((current) => {
+      if (current.length <= 1) {
+        return current;
+      }
+      return current.filter((row) => row.id !== rowId);
+    });
+  };
+
+  const hasDraftRowsContent = draftRows.some((row) => String(row.text || "").trim());
+  const draftRowsTotal = kind === "planner" ? getPlannerRowsTotal(draftRows) : parseMoneyInput(draft.amount);
 
   const saveEntry = async () => {
     const timestamp = nowISO();
-    const sourceDate = activeEntry?.repeatMonthly || activeEntry?.repeatWeekly
+
+    if (kind === "planner") {
+      const payload = buildPlannerEntryPayload(draftRowsRef.current);
+      if (!payload.text.trim()) {
+        return;
+      }
+
+      const sourceDate = activeEntry?.repeatMonthly || activeEntry?.repeatWeekly || activeEntry?.repeatYearly
+        ? activeEntry.date
+        : selectedDate;
+      const nextEntry = normalizeEntry({
+        id: activeEntry?.id || uid(kind),
+        date: (draft.repeatMonthly || draft.repeatWeekly || draft.repeatYearly) ? sourceDate : selectedDate,
+        text: payload.text,
+        amount: payload.amount,
+        repeatMonthly: draft.repeatMonthly,
+        repeatWeekly: draft.repeatWeekly,
+        repeatYearly: draft.repeatYearly,
+        createdAt: activeEntry?.createdAt || timestamp,
+        createdBy: activeEntry?.createdBy || actor,
+        updatedAt: timestamp,
+        updatedBy: actor,
+      }, kind);
+
+      const saved = await onSave({
+        ...state,
+        [dateKey]: selectedDate,
+        [listKey]: activeEntry
+          ? upsertEntry(entries, nextEntry)
+          : [...entries, nextEntry].sort((left, right) => compareDesc(left.updatedAt || left.date, right.updatedAt || right.date)),
+      }, "Событие сохранено");
+
+      if (saved) {
+        setEditing(false);
+      }
+      return;
+    }
+
+    const sourceDate = activeEntry?.repeatMonthly || activeEntry?.repeatWeekly || activeEntry?.repeatYearly
       ? activeEntry.date
       : selectedDate;
     const nextEntry = normalizeEntry({
       id: activeEntry?.id || uid(kind),
-      date: (draft.repeatMonthly || draft.repeatWeekly) ? sourceDate : selectedDate,
+      date: (draft.repeatMonthly || draft.repeatWeekly || draft.repeatYearly) ? sourceDate : selectedDate,
       text: draft.text.trim(),
-      amount: kind === "planner" ? String(draft.amount ?? "").trim() : "",
+      amount: "",
       repeatMonthly: draft.repeatMonthly,
       repeatWeekly: draft.repeatWeekly,
+      repeatYearly: draft.repeatYearly,
       createdAt: activeEntry?.createdAt || timestamp,
       createdBy: activeEntry?.createdBy || actor,
       updatedAt: timestamp,
@@ -2323,7 +2845,9 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
       [listKey]: upsertEntry(entries, nextEntry),
     }, kind === "planner" ? "Событие сохранено" : "Запись сохранена");
 
-    if (saved) setEditing(false);
+    if (saved) {
+      setEditing(false);
+    }
   };
 
   const deleteEntry = async () => {
@@ -2341,11 +2865,14 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
   };
 
   const entryMeta = actorStamp(activeEntry?.updatedBy || activeEntry?.createdBy, activeEntry?.updatedAt || activeEntry?.createdAt);
+  const activeEntryRows = kind === "planner" ? getPlannerEntryRows(activeEntry) : [];
   const summaryText = activeEntry?.repeatWeekly
     ? "Повторяется каждую неделю"
     : activeEntry?.repeatMonthly
       ? "Повторяется каждый месяц"
-      : formatDate(selectedDate);
+      : activeEntry?.repeatYearly
+        ? "Повторяется каждый год"
+        : formatDate(selectedDate);
   const modalTitle = activeEntry
     ? (kind === "planner" ? "Редактировать событие" : "Редактировать запись")
     : (kind === "planner" ? "Новое событие" : "Новая запись");
@@ -2356,7 +2883,11 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
         <div className="page-head">
           <div>
             <h2>${title}</h2>
-            <p>${activeEntry ? summaryText : `Новая запись на ${formatDate(selectedDate)}`}</p>
+            <p>${activeEntry
+              ? summaryText
+              : (kind === "planner"
+                ? `На ${formatDate(selectedDate)} событий пока нет`
+                : `Новая запись на ${formatDate(selectedDate)}`)}</p>
           </div>
 
           <div className="note-toolbar">
@@ -2376,7 +2907,7 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                 className="button button--blue button--equal"
                 onClick=${openEditor}
                 disabled=${saving}
-              >${activeEntry ? "Редактировать" : (kind === "planner" ? "Добавить событие" : "Добавить запись")}</button>
+              >Редактировать</button>
             ` : null}
 
             ${activeEntry ? html`
@@ -2394,21 +2925,30 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
           ${activeEntry ? html`
             <div className="note-view">
               <div className="note-pill-row">
-                <div className="note-date-pill">
-                  ${summaryText}
-                </div>
-                ${kind === "planner" && activeEntry?.amount ? html`
-                  <div className="note-date-pill note-date-pill--amount">${formatMoney(parseMoneyInput(activeEntry.amount))}</div>
+                <div className="note-date-pill">${summaryText}</div>
+                ${kind === "planner" ? html`
+                  <div className="note-date-pill note-date-pill--amount">Итого: ${formatMoney(getPlannerEntryTotal(activeEntry))}</div>
                 ` : null}
               </div>
-              <div className="note-text">${activeEntry?.text || "На эту дату пока нет записи."}</div>
+              ${kind === "planner"
+                ? html`
+                  <div className="note-lines">
+                    ${activeEntryRows.map((row) => html`
+                      <div key=${row.id} className="note-line">
+                        <span>${row.text}</span>
+                        <strong>${formatMoney(parseMoneyInput(row.amount))}</strong>
+                      </div>
+                    `)}
+                  </div>
+                `
+                : html`<div className="note-text">${activeEntry?.text || "На эту дату пока нет записи."}</div>`}
               ${entryMeta ? html`<div className="meta-line">Обновил: ${entryMeta}</div>` : null}
             </div>
           ` : html`
             <div className="empty-state empty-state--soft note-empty">
               <p>${kind === "planner" ? "На эту дату событий пока нет." : "На эту дату записей пока нет."}</p>
               ${!editing ? html`
-                <button type="button" className="button button--blue" onClick=${openEditor} disabled=${saving}>
+                <button type="button" className="button button--blue note-empty__action" onClick=${openEditor} disabled=${saving}>
                   ${kind === "planner" ? "Добавить событие" : "Добавить запись"}
                 </button>
               ` : null}
@@ -2440,7 +2980,12 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                   <h3>${modalTitle}</h3>
                   <p>${formatDate(selectedDate)}</p>
                 </div>
-                <button type="button" className="modal-close" onClick=${closeEditor} disabled=${saving}>×</button>
+                <div className="modal-head__actions">
+                  ${kind === "planner" ? html`
+                    <div className="modal-total">Итого: ${formatMoney(draftRowsTotal)}</div>
+                  ` : null}
+                  <button type="button" className="modal-close" onClick=${closeEditor} disabled=${saving}>×</button>
+                </div>
               </div>
 
               <div className="modal-sheet__body modal-sheet__body--event">
@@ -2455,29 +3000,61 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                 </label>
 
                 ${kind === "planner" ? html`
-                  <div className="field-row">
-                    <label className="field field--compact">
+                  <div className="event-rows">
+                    <div className="event-rows__head">
+                      <span>Название</span>
                       <span>Сумма</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        value=${draft.amount}
-                        onInput=${(event) => setDraft((current) => ({ ...current, amount: event.target.value }))}
-                        placeholder="0"
-                        disabled=${saving}
-                      />
-                    </label>
-                  </div>
-                ` : null}
+                      <span className="event-rows__spacer"></span>
+                    </div>
 
-                <textarea
-                  className="editor-textarea editor-textarea--event"
-                  value=${draft.text}
-                  onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
-                  placeholder=${kind === "planner" ? "Опишите событие, встречу, платеж или договоренность" : "Запишите заметку"}
-                  disabled=${saving}
-                ></textarea>
+                    ${draftRows.map((row, index) => html`
+                      <div key=${row.id} className="event-row">
+                        <input
+                          type="text"
+                          value=${row.text}
+                          onInput=${(event) => updateDraftRow(row.id, { text: event.target.value })}
+                          onChange=${(event) => updateDraftRow(row.id, { text: event.target.value })}
+                          placeholder="Название события"
+                          disabled=${saving}
+                        />
+                        <div className="event-row__amount">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            value=${row.amount}
+                            onInput=${(event) => updateDraftRow(row.id, { amount: event.target.value })}
+                            onChange=${(event) => updateDraftRow(row.id, { amount: event.target.value })}
+                            placeholder="0"
+                            disabled=${saving}
+                          />
+                          <span className="event-row__currency">₽</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="icon-button event-row__remove"
+                          onClick=${() => removeDraftRow(row.id)}
+                          disabled=${saving || index === 0}
+                          aria-label="Удалить строку"
+                        >
+                          <${AppIcon} name="trash" size=${16} />
+                        </button>
+                      </div>
+                    `)}
+
+                    <button type="button" className="button button--ghost event-rows__add" onClick=${addDraftRow} disabled=${saving}>
+                      Добавить строку
+                    </button>
+                  </div>
+                ` : html`
+                  <textarea
+                    className="editor-textarea editor-textarea--event"
+                    value=${draft.text}
+                    onInput=${(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+                    placeholder="Запишите заметку"
+                    disabled=${saving}
+                  ></textarea>
+                `}
 
                 <div className="editor-checks editor-checks--event">
                   <label className="checkbox-row">
@@ -2488,10 +3065,11 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                         ...current,
                         repeatMonthly: event.target.checked,
                         repeatWeekly: event.target.checked ? false : current.repeatWeekly,
+                        repeatYearly: event.target.checked ? false : current.repeatYearly,
                       }))}
                       disabled=${saving}
                     />
-                    <span>Повторять ежемесячно</span>
+                    <span>Каждый месяц</span>
                   </label>
 
                   ${kind === "planner" ? html`
@@ -2503,17 +3081,33 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                           ...current,
                           repeatWeekly: event.target.checked,
                           repeatMonthly: event.target.checked ? false : current.repeatMonthly,
+                          repeatYearly: event.target.checked ? false : current.repeatYearly,
                         }))}
                         disabled=${saving}
                       />
-                      <span>Повторять еженедельно</span>
+                      <span>Каждую неделю</span>
+                    </label>
+
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked=${draft.repeatYearly}
+                        onChange=${(event) => setDraft((current) => ({
+                          ...current,
+                          repeatYearly: event.target.checked,
+                          repeatMonthly: event.target.checked ? false : current.repeatMonthly,
+                          repeatWeekly: event.target.checked ? false : current.repeatWeekly,
+                        }))}
+                        disabled=${saving}
+                      />
+                      <span>Каждый год</span>
                     </label>
                   ` : null}
                 </div>
               </div>
 
               <div className="modal-actions modal-actions--event">
-                <div className="modal-actions__side">
+                <div className="modal-actions__slot modal-actions__slot--start">
                   ${activeEntry ? html`
                     <button
                       type="button"
@@ -2523,9 +3117,16 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                     >Удалить</button>
                   ` : null}
                 </div>
-                <div className="modal-actions__side modal-actions__side--end">
+                <div className="modal-actions__slot modal-actions__slot--center">
                   <button type="button" className="button button--ghost" onClick=${closeEditor} disabled=${saving}>Отмена</button>
-                  <button type="button" className="button button--red" onClick=${saveEntry} disabled=${saving || !draft.text.trim()}>
+                </div>
+                <div className="modal-actions__slot modal-actions__slot--end">
+                  <button
+                    type="button"
+                    className="button button--red"
+                    onClick=${saveEntry}
+                    disabled=${saving || (kind === "planner" ? !hasDraftRowsContent : !draft.text.trim())}
+                  >
                     ${saving ? html`<${ButtonSpinner} />` : null}
                     <span>${saving ? "Сохранение..." : "Сохранить"}</span>
                   </button>
@@ -2551,10 +3152,15 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
   const [commentMenuKey, setCommentMenuKey] = useState("");
   const [editingCommentKey, setEditingCommentKey] = useState("");
   const [editingCommentText, setEditingCommentText] = useState("");
+  const feedSeenSnapshotRef = useRef(getFeedSeenAt(state.settings, actor));
   const posts = useMemo(() => sortedPosts([...state.posts], state.feedFilters), [state.posts, state.feedFilters]);
   const isArchived = state.feedFilters.mode === "archived";
   const commentsPost = posts.find((post) => post.id === commentsPostId) || null;
   const editingPost = state.posts.find((post) => post.id === editingPostId) || null;
+
+  useEffect(() => {
+    feedSeenSnapshotRef.current = getFeedSeenAt(state.settings, actor);
+  }, [actor]);
 
   useEffect(() => {
     document.body.classList.toggle("has-comments-sheet", Boolean(commentsPostId));
@@ -2908,6 +3514,16 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
             const postActor = post.updatedBy || post.author || "Lesha";
             const authorTheme = getAuthorTheme(postActor);
             const ownPost = (post.createdBy || post.author || "") === (actor || "");
+            const isNewPost = (() => {
+              if (!actor || post.archived || ownPost) {
+                return false;
+              }
+              const seenAt = feedSeenSnapshotRef.current;
+              if (!seenAt) {
+                return true;
+              }
+              return new Date(getPostFreshStamp(post)).getTime() > new Date(seenAt).getTime();
+            })();
             return html`
             <article key=${post.id} className=${`post-card post-card--flat post-card--mobile${post.pinned ? " is-pinned" : ""}${post.archived ? " is-archived" : ""}`}>
               <div className="post-head post-head--mobile">
@@ -2927,42 +3543,45 @@ function FeedPage({ state, onSave, onLocalChange, onCreatePost, onEditPost, onDe
                   </div>
                 </div>
 
-                <div className="post-menu-wrap">
-                  <button type="button" className="menu-button" onClick=${() => setMenuOpenId((value) => value === post.id ? "" : post.id)} disabled=${saving}>⋯</button>
-                  ${menuOpenId === post.id && html`
-                    <div className="post-menu">
-                      ${ownPost ? html`
+                <div className="post-head__actions">
+                  ${isNewPost ? html`<span className="post-new-chip">Новое</span>` : null}
+                  <div className="post-menu-wrap">
+                    <button type="button" className="menu-button" onClick=${() => setMenuOpenId((value) => value === post.id ? "" : post.id)} disabled=${saving}>⋯</button>
+                    ${menuOpenId === post.id && html`
+                      <div className="post-menu">
+                        ${ownPost ? html`
+                          <button
+                            type="button"
+                            className="post-menu__item"
+                            onClick=${() => startEditPost(post.id)}
+                          >
+                            <span className="post-menu__icon">✎</span>
+                            <span className="post-menu__label">Редактировать</span>
+                          </button>
+                        ` : null}
                         <button
                           type="button"
                           className="post-menu__item"
-                          onClick=${() => startEditPost(post.id)}
+                          onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплен" : "Пост закреплен")}
                         >
-                          <span className="post-menu__icon">✎</span>
-                          <span className="post-menu__label">Редактировать</span>
+                          <span className="post-menu__icon">📌</span>
+                          <span className="post-menu__label">${post.pinned ? "Открепить" : "Закрепить"}</span>
                         </button>
-                      ` : null}
-                      <button
-                        type="button"
-                        className="post-menu__item"
-                        onClick=${() => updatePost(post.id, { pinned: !post.pinned }, post.pinned ? "Пост откреплен" : "Пост закреплен")}
-                      >
-                        <span className="post-menu__icon">📌</span>
-                        <span className="post-menu__label">${post.pinned ? "Открепить" : "Закрепить"}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="post-menu__item"
-                        onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращен" : "Пост отправлен в архив")}
-                      >
-                        <span className="post-menu__icon">🗂</span>
-                        <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
-                      </button>
-                      <button type="button" className="post-menu__item is-danger" onClick=${() => requestDeletePost(post.id)}>
-                        <span className="post-menu__icon">⌫</span>
-                        <span className="post-menu__label">Удалить</span>
-                      </button>
-                    </div>
-                  `}
+                        <button
+                          type="button"
+                          className="post-menu__item"
+                          onClick=${() => updatePost(post.id, { archived: !post.archived, pinned: post.archived ? post.pinned : false }, post.archived ? "Пост возвращен" : "Пост отправлен в архив")}
+                        >
+                          <span className="post-menu__icon">🗂</span>
+                          <span className="post-menu__label">${post.archived ? "Вернуть" : "В архив"}</span>
+                        </button>
+                        <button type="button" className="post-menu__item is-danger" onClick=${() => requestDeletePost(post.id)}>
+                          <span className="post-menu__icon">⌫</span>
+                          <span className="post-menu__label">Удалить</span>
+                        </button>
+                      </div>
+                    `}
+                  </div>
                 </div>
               </div>
 
@@ -3311,27 +3930,137 @@ function PostModal({ saving, onClose, onSubmit, initialPost = null }) {
   `;
 }
 
-function CalendarPage({ state, onLocalChange }) {
+function CalendarPage({ state, onLocalChange, onSave, onEditPost, onDeletePost, saving, actor }) {
   const monthKey = state.calendarMonth || toMonthKey(todayISO());
   const [selectedDate, setSelectedDate] = useState(`${monthKey}-01`);
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [plannerDraft, setPlannerDraft] = useState({ repeatMonthly: false, repeatWeekly: false, repeatYearly: false });
+  const [plannerDraftRows, setPlannerDraftRows] = useState(() => [createPlannerDraftRow()]);
+  const [editingPostId, setEditingPostId] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const plannerDraftRowsRef = useRef(plannerDraftRows);
   const days = useMemo(() => monthMatrix(monthKey), [monthKey]);
   const events = useMemo(() => collectEventsForDate(state, selectedDate), [state, selectedDate]);
-  const totals = useMemo(() => {
-    const next = { planner: 0, post: 0 };
-    days.forEach((day) => {
-      if (!day) return;
-      collectEventsForDate(state, day).forEach((item) => {
-        if (Object.hasOwn(next, item.type)) {
-          next[item.type] += 1;
-        }
-      });
+  const editingPost = state.posts.find((post) => post.id === editingPostId) || null;
+
+  const syncPlannerDraftRows = (updater) => {
+    setPlannerDraftRows((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      plannerDraftRowsRef.current = next;
+      return next;
     });
-    return next;
-  }, [days, state]);
+  };
 
   useEffect(() => {
     setSelectedDate(`${monthKey}-01`);
   }, [monthKey]);
+
+  useEffect(() => {
+    plannerDraftRowsRef.current = plannerDraftRows;
+  }, [plannerDraftRows]);
+
+  useEffect(() => {
+    if (!editingEntry) return;
+    const actualEntry = state.plannerEntries.find((entry) => entry.id === editingEntry.id);
+    if (!actualEntry) {
+      setEditingEntry(null);
+      setConfirmDelete(null);
+      return;
+    }
+    setEditingEntry(actualEntry);
+    setPlannerDraft({
+      repeatMonthly: Boolean(actualEntry.repeatMonthly),
+      repeatWeekly: Boolean(actualEntry.repeatWeekly),
+      repeatYearly: Boolean(actualEntry.repeatYearly),
+    });
+    const rows = getPlannerEntryRows(actualEntry);
+    syncPlannerDraftRows(rows.length ? rows.map((row) => createPlannerDraftRow(row)) : [createPlannerDraftRow()]);
+  }, [editingEntry?.id, state.plannerEntries]);
+
+  const openPlannerEditor = (entry) => {
+    if (!entry) return;
+    setEditingEntry(entry);
+    setPlannerDraft({
+      repeatMonthly: Boolean(entry.repeatMonthly),
+      repeatWeekly: Boolean(entry.repeatWeekly),
+      repeatYearly: Boolean(entry.repeatYearly),
+    });
+    const rows = getPlannerEntryRows(entry);
+    syncPlannerDraftRows(rows.length ? rows.map((row) => createPlannerDraftRow(row)) : [createPlannerDraftRow()]);
+  };
+
+  const savePlannerEntry = async () => {
+    if (!editingEntry) return;
+    const timestamp = nowISO();
+    const payload = buildPlannerEntryPayload(plannerDraftRowsRef.current);
+    if (!payload.text.trim()) return;
+    const sourceDate = editingEntry.repeatMonthly || editingEntry.repeatWeekly || editingEntry.repeatYearly
+      ? editingEntry.date
+      : selectedDate;
+    const nextEntry = normalizeEntry({
+      ...editingEntry,
+      date: (plannerDraft.repeatMonthly || plannerDraft.repeatWeekly || plannerDraft.repeatYearly) ? sourceDate : selectedDate,
+      text: payload.text,
+      amount: payload.amount,
+      repeatMonthly: plannerDraft.repeatMonthly,
+      repeatWeekly: plannerDraft.repeatWeekly,
+      repeatYearly: plannerDraft.repeatYearly,
+      updatedAt: timestamp,
+      updatedBy: actor,
+    }, "planner");
+
+    const saved = await onSave({
+      ...state,
+      plannerSelectedDate: selectedDate,
+      plannerEntries: upsertEntry(state.plannerEntries, nextEntry),
+    }, "Событие сохранено");
+
+    if (saved) {
+      setEditingEntry(null);
+    }
+  };
+
+  const updatePlannerDraftRow = (rowId, patch) => {
+    syncPlannerDraftRows((current) => current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)));
+  };
+
+  const addPlannerDraftRow = () => {
+    syncPlannerDraftRows((current) => [...current, createPlannerDraftRow()]);
+  };
+
+  const removePlannerDraftRow = (rowId) => {
+    syncPlannerDraftRows((current) => {
+      if (current.length <= 1) return current;
+      return current.filter((row) => row.id !== rowId);
+    });
+  };
+
+  const plannerDraftTotal = getPlannerRowsTotal(plannerDraftRows);
+
+  const confirmDeleteAction = async () => {
+    if (!confirmDelete) return;
+
+    if (confirmDelete.type === "planner") {
+      const saved = await onSave({
+        ...state,
+        plannerSelectedDate: selectedDate,
+        plannerEntries: state.plannerEntries.filter((entry) => entry.id !== confirmDelete.id),
+      }, "Событие удалено");
+      if (saved) {
+        setEditingEntry(null);
+        setConfirmDelete(null);
+      }
+      return;
+    }
+
+    if (confirmDelete.type === "post") {
+      const saved = await onDeletePost(confirmDelete.id);
+      if (saved) {
+        setEditingPostId("");
+        setConfirmDelete(null);
+      }
+    }
+  };
 
   const shiftMonth = (direction) => {
     const current = new Date(`${monthKey}-01T12:00:00`);
@@ -3354,8 +4083,8 @@ function CalendarPage({ state, onLocalChange }) {
         </div>
 
         <div className="calendar-summary">
-          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>События: ${totals.planner}</span></div>
-          <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента: ${totals.post}</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--planner"></i><span>События</span></div>
+          <div className="calendar-summary__item"><i className="dot dot--post"></i><span>Лента</span></div>
         </div>
 
         <div className="calendar-grid">
@@ -3371,19 +4100,18 @@ function CalendarPage({ state, onLocalChange }) {
             if (!day) {
               return html`<div key=${`empty-${index}`} className="calendar-cell is-empty"></div>`;
             }
-            const cellEvents = collectEventsForDate(state, day);
             const preview = previewEventsForDate(state, day);
+            const isRestDay = isRfNonWorkingDay(day);
             return html`
               <button
                 key=${day}
                 type="button"
                 data-testid=${`calendar-day-${day}`}
-                className=${`calendar-cell${selectedDate === day ? " is-active" : ""}`}
+                className=${`calendar-cell${selectedDate === day ? " is-active" : ""}${isRestDay ? " is-rest" : ""}`}
                 onClick=${() => setSelectedDate(day)}
               >
                 <div className="calendar-cell__top">
                   <span className="calendar-cell__day">${day.slice(8, 10)}</span>
-                  <small className="calendar-cell__count">${cellEvents.length || ""}</small>
                 </div>
                 <div className="calendar-lines">
                   ${preview.map((item) => html`
@@ -3407,7 +4135,19 @@ function CalendarPage({ state, onLocalChange }) {
         <div className="agenda-list">
           ${events.length ? events.map((item) => item.type === "post" && item.post ? html`
             <article key=${item.id} className="agenda-item agenda-item--post">
-              <div className="agenda-badge agenda-badge--post">${item.label}</div>
+              <div className="agenda-item__head">
+                <div className="agenda-badge agenda-badge--post">${item.label}</div>
+                ${isPostOwnedByActor(item.post, actor) ? html`
+                  <div className="agenda-item__actions">
+                    <button type="button" className="icon-button agenda-action" onClick=${() => setEditingPostId(item.post.id)} disabled=${saving} aria-label="Редактировать запись">
+                      <${AppIcon} name="edit" size=${16} />
+                    </button>
+                    <button type="button" className="icon-button agenda-action agenda-action--danger" onClick=${() => setConfirmDelete({ type: "post", id: item.post.id, label: "запись" })} disabled=${saving} aria-label="Удалить запись">
+                      <${AppIcon} name="trash" size=${16} />
+                    </button>
+                  </div>
+                ` : null}
+              </div>
               <div className="agenda-post-meta">${item.post.author || item.post.createdBy || "Lesha"} • ${formatFeedTimeMsk(item.post.createdAt || item.post.updatedAt)}</div>
               ${item.post.text ? html`<div className="agenda-text">${item.post.text}</div>` : null}
               ${item.post.images?.length ? html`
@@ -3422,11 +4162,32 @@ function CalendarPage({ state, onLocalChange }) {
             </article>
           ` : html`
             <article key=${item.id} className="agenda-item">
-              <div className=${`agenda-badge agenda-badge--${item.type}`}>${item.label}</div>
-              ${item.type === "planner" && item.entry?.amount ? html`
-                <div className="agenda-post-meta">Сумма: ${formatMoney(parseMoneyInput(item.entry.amount))}</div>
+              <div className="agenda-item__head">
+                <div className=${`agenda-badge agenda-badge--${item.type}`}>${item.label}</div>
+                <div className="agenda-item__actions">
+                  <button type="button" className="icon-button agenda-action" onClick=${() => openPlannerEditor(item.entry)} disabled=${saving} aria-label="Редактировать событие">
+                    <${AppIcon} name="edit" size=${16} />
+                  </button>
+                  <button type="button" className="icon-button agenda-action agenda-action--danger" onClick=${() => setConfirmDelete({ type: "planner", id: item.entry.id, label: "событие" })} disabled=${saving} aria-label="Удалить событие">
+                    <${AppIcon} name="trash" size=${16} />
+                  </button>
+                </div>
+              </div>
+              ${item.type === "planner" ? html`
+                <div className="agenda-post-meta">Итого: ${formatMoney(getPlannerEntryTotal(item.entry))}</div>
               ` : null}
-              <div className="agenda-text">${item.text}</div>
+              ${item.type === "planner"
+                ? html`
+                  <div className="agenda-lines">
+                    ${getPlannerEntryRows(item.entry).map((row) => html`
+                      <div key=${row.id} className="agenda-line-item">
+                        <span>${row.text}</span>
+                        <strong>${formatMoney(parseMoneyInput(row.amount))}</strong>
+                      </div>
+                    `)}
+                  </div>
+                `
+                : html`<div className="agenda-text">${item.text}</div>`}
             </article>
           `) : html`
             <div className="empty-state empty-state--soft">
@@ -3435,6 +4196,179 @@ function CalendarPage({ state, onLocalChange }) {
           `}
         </div>
       </section>
+
+      ${editingEntry ? html`
+        <div className="modal-backdrop note-modal-backdrop" onClick=${() => !saving && setEditingEntry(null)}>
+          <section
+            className="modal-sheet modal-sheet--event"
+            data-testid="calendar-planner-modal"
+            onClick=${(event) => event.stopPropagation()}
+          >
+            <div className="modal-head">
+              <div>
+                <h3>Редактировать событие</h3>
+                <p>${formatDate(selectedDate)}</p>
+              </div>
+              <div className="modal-head__actions">
+                <div className="modal-total">Итого: ${formatMoney(plannerDraftTotal)}</div>
+                <button type="button" className="modal-close" onClick=${() => setEditingEntry(null)} disabled=${saving}>×</button>
+              </div>
+            </div>
+
+            <div className="modal-sheet__body modal-sheet__body--event">
+              <label className="date-field">
+                <span>Дата</span>
+                <input
+                  type="date"
+                  value=${selectedDate}
+                  onInput=${(event) => {
+                    const nextDate = event.target.value || todayISO();
+                    setSelectedDate(nextDate);
+                    onLocalChange({ ...state, plannerSelectedDate: nextDate });
+                  }}
+                  disabled=${saving}
+                />
+              </label>
+
+              <div className="event-rows">
+                <div className="event-rows__head">
+                  <span>Название</span>
+                  <span>Сумма</span>
+                  <span className="event-rows__spacer"></span>
+                </div>
+
+                ${plannerDraftRows.map((row, index) => html`
+                  <div key=${row.id} className="event-row">
+                    <input
+                      type="text"
+                      value=${row.text}
+                      onInput=${(event) => updatePlannerDraftRow(row.id, { text: event.target.value })}
+                      onChange=${(event) => updatePlannerDraftRow(row.id, { text: event.target.value })}
+                      placeholder="Название события"
+                      disabled=${saving}
+                    />
+                    <div className="event-row__amount">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        value=${row.amount}
+                        onInput=${(event) => updatePlannerDraftRow(row.id, { amount: event.target.value })}
+                        onChange=${(event) => updatePlannerDraftRow(row.id, { amount: event.target.value })}
+                        placeholder="0"
+                        disabled=${saving}
+                      />
+                      <span className="event-row__currency">₽</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-button event-row__remove"
+                      onClick=${() => removePlannerDraftRow(row.id)}
+                      disabled=${saving || index === 0}
+                      aria-label="Удалить строку"
+                    >
+                      <${AppIcon} name="trash" size=${16} />
+                    </button>
+                  </div>
+                `)}
+
+                <button type="button" className="button button--ghost event-rows__add" onClick=${addPlannerDraftRow} disabled=${saving}>
+                  Добавить строку
+                </button>
+              </div>
+
+              <div className="editor-checks editor-checks--event">
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked=${plannerDraft.repeatMonthly}
+                    onChange=${(event) => setPlannerDraft((current) => ({
+                      ...current,
+                      repeatMonthly: event.target.checked,
+                      repeatWeekly: event.target.checked ? false : current.repeatWeekly,
+                      repeatYearly: event.target.checked ? false : current.repeatYearly,
+                    }))}
+                    disabled=${saving}
+                  />
+                  <span>Каждый месяц</span>
+                </label>
+
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked=${plannerDraft.repeatWeekly}
+                    onChange=${(event) => setPlannerDraft((current) => ({
+                      ...current,
+                      repeatWeekly: event.target.checked,
+                      repeatMonthly: event.target.checked ? false : current.repeatMonthly,
+                      repeatYearly: event.target.checked ? false : current.repeatYearly,
+                    }))}
+                    disabled=${saving}
+                  />
+                  <span>Каждую неделю</span>
+                </label>
+
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked=${plannerDraft.repeatYearly}
+                    onChange=${(event) => setPlannerDraft((current) => ({
+                      ...current,
+                      repeatYearly: event.target.checked,
+                      repeatMonthly: event.target.checked ? false : current.repeatMonthly,
+                      repeatWeekly: event.target.checked ? false : current.repeatWeekly,
+                    }))}
+                    disabled=${saving}
+                  />
+                  <span>Каждый год</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="modal-actions modal-actions--event">
+              <div className="modal-actions__slot modal-actions__slot--start">
+                <button
+                  type="button"
+                  className="button button--ghost danger-ghost"
+                  onClick=${() => setConfirmDelete({ type: "planner", id: editingEntry.id, label: "событие" })}
+                  disabled=${saving}
+                >Удалить</button>
+              </div>
+              <div className="modal-actions__slot modal-actions__slot--center">
+                <button type="button" className="button button--ghost" onClick=${() => setEditingEntry(null)} disabled=${saving}>Отмена</button>
+              </div>
+              <div className="modal-actions__slot modal-actions__slot--end">
+                <button type="button" className="button button--red" onClick=${savePlannerEntry} disabled=${saving || !plannerDraftRows.some((row) => String(row.text || "").trim())}>
+                  ${saving ? html`<${ButtonSpinner} />` : null}
+                  <span>${saving ? "Сохранение..." : "Сохранить"}</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ` : null}
+
+      ${editingPost ? html`
+        <${PostModal}
+          saving=${saving}
+          initialPost=${editingPost}
+          onClose=${() => setEditingPostId("")}
+          onSubmit=${async (draft) => {
+            const saved = await onEditPost(editingPost.id, draft);
+            if (saved) {
+              setEditingPostId("");
+            }
+          }}
+        />
+      ` : null}
+
+      <${ConfirmDialog}
+        open=${Boolean(confirmDelete)}
+        saving=${saving}
+        message=${confirmDelete ? `Вы уверены, что хотите удалить ${confirmDelete.label}?` : ""}
+        onCancel=${() => setConfirmDelete(null)}
+        onConfirm=${confirmDeleteAction}
+      />
     </main>
   `;
 }
@@ -3880,6 +4814,38 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
   return html`
     <main className="page" data-testid="money-page">
       <section className="panel money-panel">
+        <div className="money-tabs money-tabs--stack">
+          ${visibleTabs.map((item) => html`
+            <button
+              key=${item.id}
+              type="button"
+              data-testid=${`money-tab-collapsed-${item.id}`}
+              className="money-tabs__item money-tabs__item--collapsed"
+              onClick=${() => onSelectTab(item.id)}
+              disabled=${saving}
+            >${item.title}</button>
+          `)}
+          ${creating
+            ? html`
+              <div className="money-tab-editor">
+                <input
+                  type="text"
+                  value=${draftTitle}
+                  onInput=${(event) => setDraftTitle(event.target.value)}
+                  placeholder="Название вкладки"
+                  disabled=${saving}
+                />
+                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
+                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
+              </div>
+            `
+            : html`
+              <button type="button" className="money-tab-create" data-testid="money-tab-create" onClick=${startCreate} disabled=${saving} aria-label="Создать план">
+                <${AppIcon} name="plus" size=${18} />
+              </button>
+            `}
+        </div>
+
         ${tab ? html`
           <div className="money-mini-head money-mini-head--clean">
             <div className="money-mini-head__plan">
@@ -3933,43 +4899,11 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
               ${titleError ? html`<div className="field-error">${titleError}</div>` : null}
               <div className="money-group__summary-line">
                 <div className="money-plan-total">Итого: ${formatMoney(total)}</div>
-                <div className="money-group__count">${groupsCount} дел</div>
+                <div className="money-group__count">${groupsCount} ${pluralizeRu(groupsCount, "дело", "дела", "дел")}</div>
               </div>
             </div>
           </div>
         ` : null}
-
-        <div className="money-tabs money-tabs--stack">
-          ${visibleTabs.map((item) => html`
-            <button
-              key=${item.id}
-              type="button"
-              data-testid=${`money-tab-collapsed-${item.id}`}
-              className="money-tabs__item money-tabs__item--collapsed"
-              onClick=${() => onSelectTab(item.id)}
-              disabled=${saving}
-            >${item.title}</button>
-          `)}
-          ${creating
-            ? html`
-              <div className="money-tab-editor">
-                <input
-                  type="text"
-                  value=${draftTitle}
-                  onInput=${(event) => setDraftTitle(event.target.value)}
-                  placeholder="Название вкладки"
-                  disabled=${saving}
-                />
-                <button type="button" className="icon-button money-tab-editor__apply" onClick=${confirmCreate} disabled=${saving || !draftTitle.trim()}>✓</button>
-                <button type="button" className="icon-button money-tab-editor__cancel" onClick=${cancelCreate} disabled=${saving}>×</button>
-              </div>
-            `
-            : html`
-              <button type="button" className="money-tab-create" data-testid="money-tab-create" onClick=${startCreate} disabled=${saving} aria-label="Создать план">
-                <${AppIcon} name="plus" size=${18} />
-              </button>
-            `}
-        </div>
 
         ${!tab ? html`
           <div className="empty-state empty-state--soft money-empty">
@@ -4060,7 +4994,7 @@ function MoneyTabPage({ tabs, tab, activeTabId, saving, actor, onSave, onDelete,
                   </div>
                   <div className="money-group__summary-line">
                     <div className="money-group__total">${formatMoney(groupTotal(group))}</div>
-                    <div className="money-group__count">${itemCount} подп.</div>
+                    <div className="money-group__count">${itemCount} ${pluralizeRu(itemCount, "подпункт", "подпункта", "подпунктов")}</div>
                   </div>
                 </div>
               </div>
