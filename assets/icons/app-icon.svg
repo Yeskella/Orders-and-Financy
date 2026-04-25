@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="appIconBg" x1="76" y1="52" x2="438" y2="458" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2357F6"/>
+      <stop offset="0.52" stop-color="#2F88FF"/>
+      <stop offset="1" stop-color="#18B39A"/>
+    </linearGradient>
+    <linearGradient id="appIconGlow" x1="112" y1="118" x2="380" y2="394" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="116" fill="url(#appIconBg)"/>
+  <path d="M0 334C118 270 248 242 512 210V512H0V334Z" fill="#0E3AA6" fill-opacity="0.16"/>
+  <rect x="86" y="86" width="340" height="340" rx="94" fill="url(#appIconGlow)"/>
+
+  <path d="M128 224L256 122L384 224" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M164 214V324C164 357.137 190.863 384 224 384H288C321.137 384 348 357.137 348 324V214" fill="#FFFFFF" fill-opacity="0.14" stroke="#FFFFFF" stroke-width="26" stroke-linejoin="round"/>
+  <path d="M221.959 238.174C204.702 222.093 176 228.924 176 257.165C176 286.463 207.267 308.545 256 344C304.733 308.545 336 286.463 336 257.165C336 228.924 307.298 222.093 290.041 238.174C279.886 247.635 272.629 257.111 256 273.059C239.371 257.111 232.114 247.635 221.959 238.174Z" fill="#FFFFFF"/>
+  <path d="M198 392H314" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" opacity="0.92"/>
+</svg>

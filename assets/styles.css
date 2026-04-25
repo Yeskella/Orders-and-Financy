@@ -1,6 +1,8 @@
 :root {
   color-scheme: light;
   --bg: #f5f7fb;
+  --bg-brand: rgba(47, 109, 246, 0.16);
+  --bg-brand-soft: rgba(30, 166, 114, 0.08);
   --surface: rgba(255, 255, 255, 0.92);
   --surface-strong: #ffffff;
   --surface-muted: #f2f6fc;
@@ -20,6 +22,8 @@
 
 :root[data-theme="paper"] {
   --bg: #e8edf4;
+  --bg-brand: rgba(47, 109, 246, 0.12);
+  --bg-brand-soft: rgba(30, 166, 114, 0.07);
   --surface: rgba(244, 247, 251, 0.95);
   --surface-strong: #f8fafc;
   --surface-muted: #e2e8f0;
@@ -33,6 +37,8 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #171d24;
+  --bg-brand: rgba(122, 162, 255, 0.14);
+  --bg-brand-soft: rgba(117, 211, 170, 0.08);
   --surface: rgba(27, 34, 42, 0.96);
   --surface-strong: #202832;
   --surface-muted: #28323d;
@@ -101,7 +107,10 @@ body,
 
 body {
   margin: 0;
-  background: linear-gradient(180deg, var(--surface-strong) 0%, var(--bg) 100%);
+  background:
+    linear-gradient(180deg, var(--bg-brand) 0%, transparent 240px),
+    linear-gradient(135deg, var(--bg-brand-soft) 0%, transparent 52%),
+    var(--bg);
   color: var(--text);
 }
 
@@ -166,6 +175,7 @@ textarea {
 .auth-shell {
   min-height: 60vh;
   display: grid;
+  align-items: center;
 }
 
 .auth-card,
@@ -179,7 +189,40 @@ textarea {
 .auth-card {
   padding: 26px;
   display: grid;
+  gap: 18px;
+}
+
+.auth-brand {
+  display: grid;
   gap: 16px;
+}
+
+.auth-brand__art {
+  min-height: 180px;
+  border: 1px solid rgba(47, 109, 246, 0.14);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(47, 109, 246, 0.14) 0%, rgba(24, 179, 154, 0.12) 100%),
+    var(--surface-muted);
+}
+
+.auth-brand__logo {
+  width: min(168px, 42vw);
+  max-width: 100%;
+  aspect-ratio: 1;
+  display: block;
+}
+
+.auth-copy__eyebrow {
+  margin-bottom: 8px;
+  color: var(--blue);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .auth-copy h1,
@@ -216,6 +259,32 @@ textarea {
 .topbar-logout__icon,
 .bottom-nav {
   display: none;
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topbar-brand__logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.topbar-brand__copy {
+  min-width: 0;
+}
+
+.topbar-brand__copy strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .topbar-mobile-head h1 {
@@ -679,6 +748,10 @@ textarea {
   grid-template-columns: minmax(0, 1fr) 112px 40px;
   gap: 10px;
   align-items: center;
+}
+
+.event-row input {
+  min-width: 0;
 }
 
 .event-row__amount {
@@ -1526,7 +1599,7 @@ textarea {
 .lightbox {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 84;
   background: rgba(10, 14, 20, 0.56);
   display: grid;
   place-items: center;
@@ -1538,6 +1611,7 @@ textarea {
 .lightbox__frame {
   width: min(820px, 100%);
   max-height: min(92vh, 860px);
+  max-height: min(92dvh, 860px);
   overflow: auto;
   background: var(--surface-strong);
   border: 1px solid var(--line);
@@ -1555,11 +1629,13 @@ textarea {
 .modal-sheet--post {
   width: min(720px, 100%);
   max-height: min(88vh, 760px);
+  max-height: min(88dvh, 760px);
 }
 
 .modal-sheet--event {
   width: min(560px, calc(100vw - 24px));
   max-height: min(86vh, 720px);
+  max-height: min(86dvh, 720px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -1625,6 +1701,10 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.modal-head > :first-child {
+  min-width: 0;
 }
 
 .upload-drop {
@@ -1755,11 +1835,12 @@ textarea {
   background: var(--surface-strong);
   position: sticky;
   bottom: 0;
-  z-index: 1;
+  z-index: 3;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  box-shadow: 0 -10px 24px rgba(10, 14, 20, 0.06);
 }
 
 .modal-actions__side,
@@ -1773,6 +1854,7 @@ textarea {
 .modal-actions__side--end,
 .modal-actions__slot--end {
   justify-content: flex-end;
+  flex-wrap: nowrap;
 }
 
 .modal-actions__slot--center {
@@ -2996,30 +3078,58 @@ textarea {
 
   .modal-backdrop,
   .lightbox {
-    padding: 12px;
+    padding: 8px;
   }
 
   .modal-sheet,
   .lightbox__frame {
     width: 100%;
-    max-height: calc(100vh - 24px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
   }
 
   .modal-sheet--post {
     gap: 10px;
     max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
   }
 
   .modal-sheet--event {
-    max-height: calc(100vh - 24px);
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .modal-sheet__body--event {
-    gap: 10px;
+    gap: 12px;
   }
 
   .modal-sheet {
+    padding: 12px;
+  }
+
+  .auth-shell {
+    min-height: 100vh;
+    padding: 12px;
+  }
+
+  .auth-card {
+    padding: 16px;
+    gap: 16px;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    box-shadow: none;
+  }
+
+  .auth-brand__art {
+    min-height: 156px;
     padding: 14px;
+  }
+
+  .auth-brand__logo {
+    width: min(148px, 48vw);
   }
 
   .feed-mobile-page {
@@ -3187,13 +3297,21 @@ textarea {
 
   .event-rows__head,
   .event-row {
-    grid-template-columns: minmax(0, 1fr) 94px 40px;
+    grid-template-columns: minmax(0, 1fr) 92px 34px;
+    gap: 8px;
+  }
+
+  .event-row__remove {
+    width: 34px;
+    min-width: 34px;
+    min-height: 34px;
   }
 
   .toast {
     left: 12px;
     right: 12px;
-    bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    bottom: auto;
     min-width: 0;
   }
 
@@ -3208,7 +3326,9 @@ textarea {
   .comments-sheet {
     width: 100%;
     max-height: 100vh;
+    max-height: 100dvh;
     min-height: 82vh;
+    min-height: 82dvh;
     border-radius: 0;
   }
 
@@ -3315,8 +3435,8 @@ textarea {
   }
 
   .modal-actions--event {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
   }
 
   .modal-actions__side,
@@ -3327,14 +3447,13 @@ textarea {
   .modal-actions__side .button,
   .modal-actions__slot .button {
     flex: 0 0 auto;
+    min-width: 0;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   .modal-actions__slot {
     justify-content: flex-start;
-  }
-
-  .modal-actions__slot--center {
-    justify-content: center;
   }
 
   .modal-actions__slot--end {
@@ -3342,17 +3461,24 @@ textarea {
   }
 
   .modal-head {
-    align-items: center;
+    display: grid;
+    gap: 12px;
+    align-items: start;
   }
 
   .modal-head__actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 8px;
+    align-items: start;
   }
 
   .modal-total {
     min-height: 34px;
     padding: 0 10px;
     font-size: 0.82rem;
+    width: 100%;
   }
 
   .money-row__summary {

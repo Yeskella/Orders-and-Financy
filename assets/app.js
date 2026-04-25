@@ -18,6 +18,7 @@ const DEFAULT_SUPABASE_COMMENTS_TABLE = "post_comments";
 const DEFAULT_SUPABASE_MONEY_TABS_TABLE = "money_tabs";
 const DEFAULT_SUPABASE_MONEY_GROUPS_TABLE = "money_groups";
 const DEFAULT_SUPABASE_MONEY_ITEMS_TABLE = "money_items";
+const APP_NAME = "Планирование семьи";
 const THEME_STORAGE_KEY = "budget-planner-theme";
 const VIEW_STORAGE_KEY = "budget-planner-view";
 const SESSION_STORAGE_KEY = "budget-planner-session";
@@ -1864,7 +1865,7 @@ function App() {
   const feedSeenSaveKeyRef = useRef("");
 
   useEffect(() => {
-    document.title = "My Family Planner";
+    document.title = APP_NAME;
   }, []);
 
   useEffect(() => {
@@ -2458,6 +2459,12 @@ function App() {
   return html`
     <div className="app-shell">
       <header className="topbar">
+        <div className="topbar-brand" aria-label=${APP_NAME}>
+          <img className="topbar-brand__logo" src="./assets/icons/app-icon.svg" alt="" />
+          <div className="topbar-brand__copy">
+            <strong>${APP_NAME}</strong>
+          </div>
+        </div>
         <nav className="nav-tabs" aria-label="Навигация">
           ${FIXED_NAV_ITEMS.map((item) => html`
             <button
@@ -2611,9 +2618,15 @@ function LoginPage({ saving, onSubmit }) {
   return html`
     <main className="auth-shell" data-testid="login-page">
       <section className="auth-card">
-        <div className="auth-copy">
-          <h1>Вход</h1>
-          <p>Роли привязаны к минимальной авторизации. Все изменения дальше будут подписываться выбранным пользователем.</p>
+        <div className="auth-brand">
+          <div className="auth-brand__art">
+            <img className="auth-brand__logo" src="./assets/icons/app-icon.svg" alt=${APP_NAME} />
+          </div>
+          <div className="auth-copy">
+            <div className="auth-copy__eyebrow">${APP_NAME}</div>
+            <h1>Вход</h1>
+            <p>Общие события, семейная лента, планы и календарь в одном месте.</p>
+          </div>
         </div>
 
         <label className="field">
@@ -3117,10 +3130,8 @@ function NotePage({ kind, title, state, onSave, onLocalChange, saving, actor }) 
                     >Удалить</button>
                   ` : null}
                 </div>
-                <div className="modal-actions__slot modal-actions__slot--center">
-                  <button type="button" className="button button--ghost" onClick=${closeEditor} disabled=${saving}>Отмена</button>
-                </div>
                 <div className="modal-actions__slot modal-actions__slot--end">
+                  <button type="button" className="button button--ghost" onClick=${closeEditor} disabled=${saving}>Отмена</button>
                   <button
                     type="button"
                     className="button button--red"
@@ -4334,10 +4345,8 @@ function CalendarPage({ state, onLocalChange, onSave, onEditPost, onDeletePost, 
                   disabled=${saving}
                 >Удалить</button>
               </div>
-              <div className="modal-actions__slot modal-actions__slot--center">
-                <button type="button" className="button button--ghost" onClick=${() => setEditingEntry(null)} disabled=${saving}>Отмена</button>
-              </div>
               <div className="modal-actions__slot modal-actions__slot--end">
+                <button type="button" className="button button--ghost" onClick=${() => setEditingEntry(null)} disabled=${saving}>Отмена</button>
                 <button type="button" className="button button--red" onClick=${savePlannerEntry} disabled=${saving || !plannerDraftRows.some((row) => String(row.text || "").trim())}>
                   ${saving ? html`<${ButtonSpinner} />` : null}
                   <span>${saving ? "Сохранение..." : "Сохранить"}</span>

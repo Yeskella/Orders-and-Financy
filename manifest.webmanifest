@@ -1,12 +1,12 @@
 {
-  "name": "My Family Planner",
-  "short_name": "Planner",
-  "description": "Family planner, feed, money plans and calendar.",
+  "name": "Планирование семьи",
+  "short_name": "План семьи",
+  "description": "События, лента, календарь и семейные планы в одном месте.",
   "lang": "ru",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f3f5f9",
+  "background_color": "#edf4ff",
   "theme_color": "#2f6fed",
   "icons": [
     {
@@ -24,6 +24,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "./assets/icons/app-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }
