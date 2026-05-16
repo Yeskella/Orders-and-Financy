@@ -5,10 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "icon": "../assets/icons/icon-512.png",
+    "icon": "./assets/icons/icon-512.png",
     "scheme": "planningfamily",
     "splash": {
-      "image": "../assets/icons/icon-512.png",
+      "image": "./assets/icons/icon-512.png",
       "resizeMode": "contain",
       "backgroundColor": "#edf4ff"
     },
@@ -18,7 +18,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "../assets/icons/icon-512.png",
+        "foregroundImage": "./assets/icons/icon-512.png",
         "backgroundColor": "#edf4ff"
       },
       "edgeToEdgeEnabled": true,

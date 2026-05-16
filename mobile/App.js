@@ -71,7 +71,7 @@ import {
   pluralizeRu,
   previewEventsForDate,
   sameImageRef,
-  saveAppState,
+  saveStateSlices,
   shiftIsoDate,
   shiftMonthKey,
   sortMoneySubitems,
@@ -81,6 +81,7 @@ import {
   uid,
   uploadAssets,
   upsertEntry,
+  validateView,
 } from "./src/core";
 import { getTheme } from "./src/theme";
 
@@ -154,6 +155,14 @@ const createMoneyEditor = (kind, values = {}, scope = {}) => ({
   cost: String(values.cost ?? ""),
 });
 
+const getMediaKey = (image, index, prefix = "media") => (
+  image?.path
+  || image?.publicUrl
+  || image?.fileName
+  || image?.uri
+  || `${prefix}-${index}`
+);
+
 const inputHeight = 48;
 
 function App() {
@@ -183,6 +192,7 @@ function MobileRoot() {
   const [lightboxImage, setLightboxImage] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [feedComposerEmojiOpen, setFeedComposerEmojiOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const bootstrappedRef = useRef(false);
   const theme = getTheme(themeId);
   const styles = useMemo(() => createStyles(theme, insets), [theme, insets]);
@@ -276,7 +286,7 @@ function MobileRoot() {
         ]);
         const map = Object.fromEntries(pairs);
         const nextThemeId = map[STORAGE_KEYS.theme] || DEFAULT_STATE.settings.theme;
-        const nextView = map[STORAGE_KEYS.view] || DEFAULT_STATE.view;
+        const nextView = validateView(map[STORAGE_KEYS.view] || DEFAULT_STATE.view);
         const nextStoreConfig = {
           url: map[STORAGE_KEYS.supabaseUrl] || DEFAULT_SUPABASE_URL,
           anonKey: map[STORAGE_KEYS.supabaseAnonKey] || DEFAULT_SUPABASE_ANON_KEY,
@@ -288,10 +298,9 @@ function MobileRoot() {
         setView(nextView);
         setStoreConfig(nextStoreConfig);
         setSession(nextSession);
+        setBooting(false);
         if (nextSession) {
-          await refreshRemote(nextSession, nextStoreConfig);
-        } else {
-          setBooting(false);
+          void refreshRemote(nextSession, nextStoreConfig);
         }
       } catch (error) {
         if (!cancelled) {
@@ -310,15 +319,17 @@ function MobileRoot() {
       showToast("Supabase не настроен", "danger");
       return null;
     }
+    let previousState = null;
     let nextState = null;
     setAppState((current) => {
+      previousState = current;
       nextState = normalizeState(typeof updater === "function" ? updater(current) : updater);
       return nextState;
     });
     if (!nextState) return null;
     setSavingRemote(true);
     try {
-      await saveAppState(store, nextState);
+      await saveStateSlices(store, previousState, nextState);
       if (successText) showToast(successText, "success");
       return nextState;
     } catch (error) {
@@ -374,6 +385,7 @@ function MobileRoot() {
   }, [persistSession, persistStoreConfig, refreshRemote, showToast, storeConfig]);
 
   const handleLogout = useCallback(async () => {
+    setSettingsOpen(false);
     setSession(null);
     setAppState(normalizeState(DEFAULT_STATE));
     setView(DEFAULT_STATE.view);
@@ -397,6 +409,7 @@ function MobileRoot() {
 
   const handleSwitchView = useCallback(async (nextView) => {
     if (nextView === view) return;
+    setSettingsOpen(false);
     setView(nextView);
     await persistView(nextView);
     if (nextView === "plans" && appState.feedFilters.mode !== "active") {
@@ -1020,6 +1033,7 @@ function MobileRoot() {
           onDeleteEvent=${handleDeleteEvent}
           onEditPost=${openEditPost}
           onDeletePost=${handleDeletePost}
+          onOpenImage=${setLightboxImage}
         />
       `;
     }
@@ -1073,18 +1087,7 @@ function MobileRoot() {
         />
       `;
     }
-    return html`
-      <${SettingsScreen}
-        theme=${theme}
-        styles=${styles}
-        actor=${actor}
-        themeId=${themeId}
-        onThemeChange=${handleChangeTheme}
-        storeConfig=${storeConfig}
-        onRefresh=${() => refreshRemote()}
-        onLogout=${handleLogout}
-      />
-    `;
+    return null;
   };
 
   if (booting) {
@@ -1131,8 +1134,10 @@ function MobileRoot() {
           theme=${theme}
           styles=${styles}
           activeView=${view}
+          settingsOpen=${settingsOpen}
           unread=${Boolean(unreadPosts.length)}
           onPress=${handleSwitchView}
+          onSettingsPress=${() => setSettingsOpen((current) => !current)}
         />
       <//>
       ${toast ? html`<${ToastView} theme=${theme} toast=${toast} />` : null}
@@ -1187,6 +1192,19 @@ function MobileRoot() {
           onClose=${closeMoneyEditor}
           onSave=${handleSaveMoneyEditor}
           onDelete=${handleDeleteMoneyEntity}
+        />
+      ` : null}
+      ${settingsOpen ? html`
+        <${SettingsDrawer}
+          theme=${theme}
+          styles=${styles}
+          actor=${actor}
+          themeId=${themeId}
+          onThemeChange=${handleChangeTheme}
+          storeConfig=${storeConfig}
+          onRefresh=${() => refreshRemote()}
+          onLogout=${handleLogout}
+          onClose=${() => setSettingsOpen(false)}
         />
       ` : null}
       ${lightboxImage ? html`
@@ -1260,7 +1278,7 @@ function LoginScreen({ theme, styles, loading, onSubmit }) {
   `;
 }
 
-function BottomNav({ theme, styles, activeView, unread, onPress }) {
+function BottomNav({ theme, styles, activeView, settingsOpen, unread, onPress, onSettingsPress }) {
   return html`
     <${View} style=${styles.bottomNav}>
       ${VIEWS.map((item) => {
@@ -1281,6 +1299,16 @@ function BottomNav({ theme, styles, activeView, unread, onPress }) {
           <//>
         `;
       })}
+      <${Pressable}
+        key="settings"
+        onPress=${onSettingsPress}
+        style=${styles.bottomNavItem}
+      >
+        <${View} style=${styles.bottomNavIconWrap}>
+          <${Ionicons} name=${settingsOpen ? "settings" : "settings-outline"} size=${22} color=${settingsOpen ? theme.blue : theme.tabInactive} />
+        <//>
+        <${Text} style=${[styles.bottomNavText, settingsOpen ? styles.bottomNavTextActive : null]}>Настройки<//>
+      <//>
     <//>
   `;
 }
@@ -1299,12 +1327,13 @@ function CalendarScreen({
   onDeleteEvent,
   onEditPost,
   onDeletePost,
+  onOpenImage,
 }) {
   const cells = monthMatrix(activeMonth);
   const agenda = collectEventsForDate(state, selectedDate);
   return html`
     <${ScrollView} contentContainerStyle=${styles.scrollContent}>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="calendar-grid" style=${styles.sectionCard}>
         <${View} style=${styles.calendarHeaderRow}>
           <${Pressable} onPress=${() => onShiftMonth(-1)} style=${styles.iconButton}>
             <${Ionicons} name="chevron-back" size=${22} color=${theme.text} />
@@ -1355,7 +1384,7 @@ function CalendarScreen({
           })}
         <//>
       <//>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="calendar-agenda" style=${styles.sectionCard}>
         <${View} style=${styles.rowBetween}>
           <${View}>
             <${Text} style=${styles.sectionCaption}>Выбран день<//>
@@ -1406,18 +1435,23 @@ function CalendarScreen({
                 <//>
                 ${item.post.images?.length ? html`
                   <${ScrollView} horizontal=${true} showsHorizontalScrollIndicator=${false} style=${styles.horizontalMedia}>
-                    ${item.post.images.map((image) => html`
-                      <${Image}
-                        key=${image.path || image.publicUrl || image.fileName}
-                        source=${{ uri: imageSrc(image) }}
+                    ${item.post.images.map((image, imageIndex) => html`
+                      <${Pressable}
+                        key=${getMediaKey(image, imageIndex, item.post.id)}
                         style=${styles.agendaThumb}
-                      />
+                        onPress=${() => onOpenImage(image)}
+                      >
+                        <${Image}
+                          source=${{ uri: imageSrc(image) }}
+                          style=${styles.agendaThumbImage}
+                        />
+                      <//>
                     `)}
                   <//>
                 ` : null}
               <//>
             `)
-          : html`<${Text} style=${styles.emptyText}>На этот день пока пусто.<//>`}
+          : html`<${Text} key="calendar-agenda-empty" style=${styles.emptyText}>На этот день пока пусто.<//>`}
       <//>
     <//>
   `;
@@ -1430,7 +1464,7 @@ function EventsScreen({ styles, state, selectedDate, onSelectDate, onCreateEvent
 
   return html`
     <${ScrollView} contentContainerStyle=${styles.scrollContent}>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="events-controls" style=${styles.sectionCard}>
         <${View} style=${styles.rowBetween}>
           <${View}>
             <${Text} style=${styles.sectionCaption}>Рабочая дата<//>
@@ -1482,7 +1516,7 @@ function EventsScreen({ styles, state, selectedDate, onSelectDate, onCreateEvent
             <//>
           `)}
         <//>
-      `) : html`<${View} style=${styles.emptyCard}><${Text} style=${styles.emptyText}>На эту дату событий еще нет.<//><//>`}
+      `) : html`<${View} key="events-empty" style=${styles.emptyCard}><${Text} style=${styles.emptyText}>На эту дату событий еще нет.<//><//>`}
     <//>
   `;
 }
@@ -1492,7 +1526,7 @@ function FeedScreen({ styles, state, actor, onOpenComposer, onOpenPost, onDelete
   const posts = sortedPosts(clone(state.posts), filters);
   return html`
     <${ScrollView} contentContainerStyle=${styles.scrollContent}>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="feed-controls" style=${styles.sectionCard}>
         <${View} style=${styles.rowBetween}>
           <${Text} style=${styles.sectionTitle}>Лента<//>
           <${Pressable} onPress=${onOpenComposer} style=${styles.primaryInlineButton}>
@@ -1535,15 +1569,15 @@ function FeedScreen({ styles, state, actor, onOpenComposer, onOpenPost, onDelete
             ${post.text ? html`<${Text} style=${styles.postText}>${post.text}<//>` : null}
             ${(post.pinned || post.archived) ? html`
               <${View} style=${styles.statusRow}>
-                ${post.pinned ? html`<${View} style=${styles.statusChip}><${Text} style=${styles.statusChipText}>Закреплено<//><//>` : null}
-                ${post.archived ? html`<${View} style=${styles.statusChip}><${Text} style=${styles.statusChipText}>Архив<//><//>` : null}
+                ${post.pinned ? html`<${View} key="pinned" style=${styles.statusChip}><${Text} style=${styles.statusChipText}>Закреплено<//><//>` : null}
+                ${post.archived ? html`<${View} key="archived" style=${styles.statusChip}><${Text} style=${styles.statusChipText}>Архив<//><//>` : null}
               <//>
             ` : null}
             ${post.images?.length ? html`
               <${View} style=${styles.feedGrid}>
-                ${post.images.map((image) => html`
+                ${post.images.map((image, imageIndex) => html`
                   <${Pressable}
-                    key=${image.path || image.publicUrl || image.fileName}
+                    key=${getMediaKey(image, imageIndex, post.id)}
                     onPress=${() => onOpenImage(image)}
                     style=${styles.feedGridItem}
                   >
@@ -1578,7 +1612,7 @@ function FeedScreen({ styles, state, actor, onOpenComposer, onOpenPost, onDelete
             <//>
           <//>
         `;
-      }) : html`<${View} style=${styles.emptyCard}><${Text} style=${styles.emptyText}>Пока нет публикаций в этом режиме.<//><//>`}
+      }) : html`<${View} key="feed-empty" style=${styles.emptyCard}><${Text} style=${styles.emptyText}>Пока нет публикаций в этом режиме.<//><//>`}
     <//>
   `;
 }
@@ -1586,7 +1620,7 @@ function FeedScreen({ styles, state, actor, onOpenComposer, onOpenPost, onDelete
 function MoneyScreen({ styles, state, activeTab, expandedGroups, onToggleGroup, onSelectTab, onOpenEditor, onDeleteEntity, onToggleItemCompleted }) {
   return html`
     <${ScrollView} contentContainerStyle=${styles.scrollContent}>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="money-tabs" style=${styles.sectionCard}>
         <${View} style=${styles.rowBetween}>
           <${Text} style=${styles.sectionTitle}>Планы<//>
           <${Pressable} onPress=${() => onOpenEditor(createMoneyEditor("tab"))} style=${styles.primaryInlineButton}>
@@ -1611,70 +1645,74 @@ function MoneyScreen({ styles, state, activeTab, expandedGroups, onToggleGroup, 
         <//>
       <//>
       ${activeTab ? html`
-        <${View} key=${`money-tab-summary-${activeTab.id}`} style=${styles.sectionCard}>
-          <${View} style=${styles.rowBetweenStart}>
-            <${View} style=${styles.flexBox}>
-              <${Text} style=${styles.sectionTitle}>${activeTab.title}<//>
-              <${Text} style=${styles.sectionCaption}>${formatMoney(getMoneyTabTotal(activeTab))} • ${(activeTab.groups || []).length} ${pluralizeRu((activeTab.groups || []).length, "раздел", "раздела", "разделов")}<//>
+        <${View} key=${`money-tab-body-${activeTab.id}`}>
+          <${View} key=${`money-tab-summary-${activeTab.id}`} style=${styles.sectionCard}>
+            <${View} style=${styles.rowBetweenStart}>
+              <${View} style=${styles.flexBox}>
+                <${Text} style=${styles.sectionTitle}>${activeTab.title}<//>
+                <${Text} style=${styles.sectionCaption}>${formatMoney(getMoneyTabTotal(activeTab))} • ${(activeTab.groups || []).length} ${pluralizeRu((activeTab.groups || []).length, "раздел", "раздела", "разделов")}<//>
+              <//>
+              <${View} style=${styles.inlineActions}>
+                <${SmallIconButton} icon="create-outline" onPress=${() => onOpenEditor(createMoneyEditor("tab", activeTab))} />
+                <${SmallIconButton} icon="trash-outline" tone="danger" onPress=${() => onDeleteEntity("tab", { tabId: activeTab.id })} />
+              <//>
             <//>
-            <${View} style=${styles.inlineActions}>
-              <${SmallIconButton} icon="create-outline" onPress=${() => onOpenEditor(createMoneyEditor("tab", activeTab))} />
-              <${SmallIconButton} icon="trash-outline" tone="danger" onPress=${() => onDeleteEntity("tab", { tabId: activeTab.id })} />
+            <${Pressable}
+              onPress=${() => onOpenEditor(createMoneyEditor("group", {}, { tabId: activeTab.id }))}
+              style=${styles.secondaryButton}
+            >
+              <${Ionicons} name="add-circle-outline" size=${18} color=${styles.secondaryButtonTextColor} />
+              <${Text} style=${styles.secondaryButtonText}>Добавить раздел<//>
             <//>
           <//>
-          <${Pressable}
-            onPress=${() => onOpenEditor(createMoneyEditor("group", {}, { tabId: activeTab.id }))}
-            style=${styles.secondaryButton}
-          >
-            <${Ionicons} name="add-circle-outline" size=${18} color=${styles.secondaryButtonTextColor} />
-            <${Text} style=${styles.secondaryButtonText}>Добавить раздел<//>
-          <//>
-        <//>
-        ${(activeTab.groups || []).length
-          ? activeTab.groups.map((group) => {
-              const expanded = expandedGroups[group.id] !== false;
-              const items = sortMoneySubitems(clone(group.items || []));
-              return html`
-                <${View} key=${group.id} style=${styles.sectionCard}>
-                  <${View} style=${styles.rowBetweenStart}>
-                    <${Pressable} onPress=${() => onToggleGroup(group.id)} style=${styles.flexGrowRow}>
-                      <${Ionicons} name=${expanded ? "chevron-down" : "chevron-forward"} size=${18} color=${styles.inlineIconColor} />
-                      <${View} style=${styles.flexBox}>
-                        <${Text} style=${styles.sectionTitle}>${group.title}<//>
-                        <${Text} style=${styles.sectionCaption}>${formatMoney(getMoneyGroupTotal(group))} • ${getMoneyGroupCount(group)} ${pluralizeRu(getMoneyGroupCount(group), "дело", "дела", "дел")}<//>
-                      <//>
-                    <//>
-                    <${View} style=${styles.inlineActions}>
-                      <${SmallIconButton} icon="add" onPress=${() => onOpenEditor(createMoneyEditor("item", {}, { tabId: activeTab.id, groupId: group.id }))} />
-                      <${SmallIconButton} icon="create-outline" onPress=${() => onOpenEditor(createMoneyEditor("group", group, { tabId: activeTab.id }))} />
-                      <${SmallIconButton} icon="trash-outline" tone="danger" onPress=${() => onDeleteEntity("group", { tabId: activeTab.id, groupId: group.id })} />
-                    <//>
-                  <//>
-                  ${expanded ? html`
-                    ${items.length ? items.map((item) => html`
-                      <${View} key=${item.id} style=${styles.moneyItemRow}>
-                        <${Pressable} onPress=${() => onToggleItemCompleted(activeTab.id, group.id, item.id)} style=${styles.checkboxWrap}>
-                          <${Ionicons}
-                            name=${item.completed ? "checkmark-circle" : "ellipse-outline"}
-                            size=${22}
-                            color=${item.completed ? styles.checkboxActiveColor : styles.checkboxColor}
-                          />
-                        <//>
+          ${(activeTab.groups || []).length
+            ? activeTab.groups.map((group) => {
+                const expanded = expandedGroups[group.id] !== false;
+                const items = sortMoneySubitems(clone(group.items || []));
+                return html`
+                  <${View} key=${group.id} style=${styles.sectionCard}>
+                    <${View} style=${styles.rowBetweenStart}>
+                      <${Pressable} onPress=${() => onToggleGroup(group.id)} style=${styles.flexGrowRow}>
+                        <${Ionicons} name=${expanded ? "chevron-down" : "chevron-forward"} size=${18} color=${styles.inlineIconColor} />
                         <${View} style=${styles.flexBox}>
-                          <${Text} style=${[styles.moneyItemTitle, item.completed ? styles.moneyItemDone : null]}>${item.name}<//>
-                          <${Text} style=${styles.moneyItemMeta}>${formatMoney(parseMoneyInput(item.cost))}<//>
-                        <//>
-                        <${View} style=${styles.inlineActions}>
-                          <${SmallIconButton} icon="create-outline" onPress=${() => onOpenEditor(createMoneyEditor("item", item, { tabId: activeTab.id, groupId: group.id }))} />
-                          <${SmallIconButton} icon="trash-outline" tone="danger" onPress=${() => onDeleteEntity("item", { tabId: activeTab.id, groupId: group.id, itemId: item.id })} />
+                          <${Text} style=${styles.sectionTitle}>${group.title}<//>
+                          <${Text} style=${styles.sectionCaption}>${formatMoney(getMoneyGroupTotal(group))} • ${getMoneyGroupCount(group)} ${pluralizeRu(getMoneyGroupCount(group), "дело", "дела", "дел")}<//>
                         <//>
                       <//>
-                    `) : html`<${Text} style=${styles.emptyText}>В этом разделе пока пусто.<//>`}
-                  ` : null}
-                <//>
-              `;
-            })
-          : html`<${View} key=${`money-tab-empty-${activeTab.id}`} style=${styles.emptyCard}><${Text} style=${styles.emptyText}>Создай первую вкладку или раздел, и дальше уже будет легче дышать.<//><//>`}
+                      <${View} style=${styles.inlineActions}>
+                        <${SmallIconButton} icon="add" onPress=${() => onOpenEditor(createMoneyEditor("item", {}, { tabId: activeTab.id, groupId: group.id }))} />
+                        <${SmallIconButton} icon="create-outline" onPress=${() => onOpenEditor(createMoneyEditor("group", group, { tabId: activeTab.id }))} />
+                        <${SmallIconButton} icon="trash-outline" tone="danger" onPress=${() => onDeleteEntity("group", { tabId: activeTab.id, groupId: group.id })} />
+                      <//>
+                    <//>
+                    ${expanded ? html`
+                      <${View} key=${`group-body-${group.id}`}>
+                        ${items.length ? items.map((item) => html`
+                          <${View} key=${item.id} style=${styles.moneyItemRow}>
+                            <${Pressable} onPress=${() => onToggleItemCompleted(activeTab.id, group.id, item.id)} style=${styles.checkboxWrap}>
+                              <${Ionicons}
+                                name=${item.completed ? "checkmark-circle" : "ellipse-outline"}
+                                size=${22}
+                                color=${item.completed ? styles.checkboxActiveColor : styles.checkboxColor}
+                              />
+                            <//>
+                            <${View} style=${styles.flexBox}>
+                              <${Text} style=${[styles.moneyItemTitle, item.completed ? styles.moneyItemDone : null]}>${item.name}<//>
+                              <${Text} style=${styles.moneyItemMeta}>${formatMoney(parseMoneyInput(item.cost))}<//>
+                            <//>
+                            <${View} style=${styles.inlineActions}>
+                              <${SmallIconButton} icon="create-outline" onPress=${() => onOpenEditor(createMoneyEditor("item", item, { tabId: activeTab.id, groupId: group.id }))} />
+                              <${SmallIconButton} icon="trash-outline" tone="danger" onPress=${() => onDeleteEntity("item", { tabId: activeTab.id, groupId: group.id, itemId: item.id })} />
+                            <//>
+                          <//>
+                        `) : html`<${Text} key=${`group-empty-${group.id}`} style=${styles.emptyText}>В этом разделе пока пусто.<//>`}
+                      <//>
+                    ` : null}
+                  <//>
+                `;
+              })
+            : html`<${View} key=${`money-tab-empty-${activeTab.id}`} style=${styles.emptyCard}><${Text} style=${styles.emptyText}>Создай первый раздел, и дальше уже будет легче дышать.<//><//>`}
+            <//>
       ` : html`<${View} key="money-no-tabs" style=${styles.emptyCard}><${Text} style=${styles.emptyText}>Пока нет вкладок. Начнем с первой.<//><//>`}
     <//>
   `;
@@ -1684,7 +1722,7 @@ function SettingsScreen({ styles, actor, themeId, onThemeChange, onRefresh, onLo
   const payroll = actor ? getNearestPayroll(actor) : null;
   return html`
     <${ScrollView} contentContainerStyle=${styles.scrollContent}>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="settings-theme" style=${styles.sectionCard}>
         <${Text} style=${styles.sectionTitle}>Тема<//>
         <${View} style=${styles.themeList}>
           ${THEMES.map((item) => html`
@@ -1698,18 +1736,18 @@ function SettingsScreen({ styles, actor, themeId, onThemeChange, onRefresh, onLo
           `)}
         <//>
       <//>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="settings-account" style=${styles.sectionCard}>
         <${Text} style=${styles.sectionTitle}>Данные аккаунта<//>
         <${Text} style=${styles.detailLine}>Профиль: ${actor || "Не выбран"}<//>
         ${payroll ? html`
-          <${View} style=${styles.payrollCard}>
+          <${View} key="settings-payroll" style=${styles.payrollCard}>
             <${Text} style=${styles.payrollTitle}>Ближайшая зарплата<//>
             <${Text} style=${styles.payrollAmount}>${payroll.label} • ${formatMoney(payroll.amount)}<//>
             <${Text} style=${styles.payrollMeta}>${formatDate(payroll.date)}<//>
           <//>
         ` : null}
       <//>
-      <${View} style=${styles.sectionCard}>
+      <${View} key="settings-connection" style=${styles.sectionCard}>
         <${Text} style=${styles.sectionTitle}>Подключение<//>
         <${Text} style=${styles.detailLine}>URL: ${storeConfig.url}<//>
         <${Text} style=${styles.detailLine}>Bucket: ${storeConfig.bucket}<//>
@@ -1718,9 +1756,37 @@ function SettingsScreen({ styles, actor, themeId, onThemeChange, onRefresh, onLo
           <${Text} style=${styles.secondaryButtonText}>Обновить данные<//>
         <//>
       <//>
-      <${Pressable} onPress=${onLogout} style=${styles.dangerButton}>
+      <${Pressable} key="settings-logout" onPress=${onLogout} style=${styles.dangerButton}>
         <${Ionicons} name="log-out-outline" size=${18} color="#ffffff" />
         <${Text} style=${styles.primaryButtonText}>Выйти<//>
+      <//>
+    <//>
+  `;
+}
+
+function SettingsDrawer({ styles, actor, themeId, onThemeChange, onRefresh, onLogout, storeConfig, onClose }) {
+  return html`
+    <${Modal} visible=${true} transparent=${true} animationType="fade" onRequestClose=${onClose}>
+      <${View} style=${styles.settingsDrawerBackdrop}>
+        <${Pressable} style=${styles.settingsDrawerShade} onPress=${onClose} />
+        <${View} style=${styles.settingsDrawerPanel}>
+          <${View} style=${styles.settingsDrawerHeader}>
+            <${View}>
+              <${Text} style=${styles.sectionCaption}>Данные аккаунта<//>
+              <${Text} style=${styles.sectionTitle}>Настройки<//>
+            <//>
+            <${SmallIconButton} theme=${null} icon="close" onPress=${onClose} />
+          <//>
+          <${SettingsScreen}
+            styles=${styles}
+            actor=${actor}
+            themeId=${themeId}
+            onThemeChange=${onThemeChange}
+            onRefresh=${onRefresh}
+            onLogout=${onLogout}
+            storeConfig=${storeConfig}
+          />
+        <//>
       <//>
     <//>
   `;
@@ -1788,6 +1854,7 @@ function EventEditorModal({ theme, styles, draft, actor, onChange, onClose, onSa
                 <//>
                 ${index > 0 ? html`
                   <${Pressable}
+                    key=${`event-row-delete-${row.id}`}
                     onPress=${() => onChange((current) => ({
                       ...current,
                       rows: current.rows.filter((item) => item.id !== row.id),
@@ -1796,7 +1863,7 @@ function EventEditorModal({ theme, styles, draft, actor, onChange, onClose, onSa
                   >
                     <${Ionicons} name="trash-outline" size=${18} color=${styles.dangerIconColor} />
                   <//>
-                ` : html`<${View} style=${styles.iconButtonGhost} />`}
+                ` : html`<${View} key=${`event-row-empty-action-${row.id}`} style=${styles.iconButtonGhost} />`}
               <//>
             `)}
             <${Pressable}
@@ -1830,7 +1897,7 @@ function EventEditorModal({ theme, styles, draft, actor, onChange, onClose, onSa
           <${View} style=${styles.modalFooter}>
             <${View}>
               ${onDelete ? html`
-                <${Pressable} onPress=${onDelete} style=${styles.footerDangerButton}>
+                <${Pressable} key="event-delete" onPress=${onDelete} style=${styles.footerDangerButton}>
                   <${Text} style=${styles.footerDangerText}>Удалить<//>
                 <//>
               ` : null}
@@ -1936,11 +2003,11 @@ function PostEditorModal({ styles, draft, emojiOpen, onToggleEmoji, onChange, on
             ` : null}
             ${(draft.existingImages.length || draft.newAssets.length) ? html`
               <${View} style=${styles.feedGrid}>
-                ${draft.existingImages.map((image) => {
+                ${draft.existingImages.map((image, imageIndex) => {
                   const removed = draft.removedImages.some((item) => sameImageRef(item, image));
                   return html`
                     <${Pressable}
-                      key=${image.path || image.publicUrl || image.fileName}
+                      key=${getMediaKey(image, imageIndex, "existing-post-image")}
                       onPress=${() => onToggleImage(image, true)}
                       style=${[styles.feedGridItem, removed ? styles.mediaMuted : null]}
                     >
@@ -1949,9 +2016,9 @@ function PostEditorModal({ styles, draft, emojiOpen, onToggleEmoji, onChange, on
                     <//>
                   `;
                 })}
-                ${draft.newAssets.map((asset) => html`
+                ${draft.newAssets.map((asset, assetIndex) => html`
                   <${Pressable}
-                    key=${asset.uri}
+                    key=${getMediaKey(asset, assetIndex, "new-post-image")}
                     onPress=${() => onToggleImage(asset, false)}
                     style=${styles.feedGridItem}
                   >
@@ -1981,7 +2048,65 @@ function PostEditorModal({ styles, draft, emojiOpen, onToggleEmoji, onChange, on
 
 function CommentsModal({ styles, theme, post, actor, draft, onChangeDraft, onClose, onSave, onDelete }) {
   const comments = post.comments || [];
-  const commentsById = new Map(comments.map((comment) => [comment.id, comment]));
+  const commentIds = new Set(comments.map((comment) => comment.id));
+  const commentsByParent = new Map();
+  comments.forEach((comment) => {
+    const parentKey = comment.parentId && commentIds.has(comment.parentId) ? comment.parentId : "";
+    const list = commentsByParent.get(parentKey) || [];
+    list.push(comment);
+    commentsByParent.set(parentKey, list);
+  });
+  const renderCommentThread = (parentId = "", depth = 0) => (commentsByParent.get(parentId) || []).map((comment) => {
+    const own = isPostOwnedByActor({ createdBy: comment.createdBy, author: comment.author }, actor);
+    const children = renderCommentThread(comment.id, depth + 1);
+    return html`
+      <${View} key=${comment.id} style=${[styles.commentCard, depth ? styles.commentCardChild : null]}>
+        <${View} style=${styles.authorRow}>
+          <${View} style=${[styles.avatarSmall, { backgroundColor: getAuthorTheme(comment.author).bg }]}>
+            <${Text} style=${styles.avatarTextSmall}>${initials(comment.author)}<//>
+          <//>
+          <${View} style=${styles.flexBox}>
+            <${Text} style=${styles.postAuthor}>${comment.author}<//>
+            <${Text} style=${styles.postMeta}>${formatFeedTimeMsk(comment.updatedAt || comment.createdAt)}<//>
+          <//>
+        <//>
+        <${Text} style=${styles.commentText}>${comment.text}<//>
+        <${View} style=${styles.postActions}>
+          <${Pressable}
+            key="reply"
+            onPress=${() => onChangeDraft({ text: "", parentId: comment.id, commentId: "" })}
+            style=${styles.actionChip}
+          >
+            <${Ionicons} name="return-up-forward-outline" size=${16} color=${styles.actionChipIconColor} />
+            <${Text} style=${styles.actionChipText}>Ответить<//>
+          <//>
+          ${own ? html`
+            <${Pressable}
+              key="edit"
+              onPress=${() => onChangeDraft({ text: comment.text, parentId: comment.parentId || "", commentId: comment.id })}
+              style=${styles.actionChip}
+            >
+              <${Ionicons} name="create-outline" size=${16} color=${styles.actionChipIconColor} />
+              <${Text} style=${styles.actionChipText}>Изменить<//>
+            <//>
+            <${Pressable}
+              key="delete"
+              onPress=${() => onDelete(post.id, comment.id)}
+              style=${styles.actionChipDanger}
+            >
+              <${Ionicons} name="trash-outline" size=${16} color=${styles.actionChipDangerColor} />
+              <${Text} style=${styles.actionChipDangerText}>Удалить<//>
+            <//>
+          ` : null}
+        <//>
+        ${children.length ? html`
+          <${View} key=${`children-${comment.id}`} style=${styles.commentChildren}>
+            ${children}
+          <//>
+        ` : null}
+      <//>
+    `;
+  });
   return html`
     <${Modal} visible=${true} transparent=${true} animationType="slide" onRequestClose=${onClose}>
       <${View} style=${styles.modalOverlay}>
@@ -1995,50 +2120,7 @@ function CommentsModal({ styles, theme, post, actor, draft, onChangeDraft, onClo
           <//>
           <${ScrollView} style=${styles.modalBody} contentContainerStyle=${styles.modalBodyContent}>
             ${post.text ? html`<${Text} style=${styles.postText}>${post.text}<//>` : null}
-            ${comments.length ? comments.map((comment) => {
-              const own = isPostOwnedByActor({ createdBy: comment.createdBy, author: comment.author }, actor);
-              const parent = comment.parentId ? commentsById.get(comment.parentId) : null;
-              return html`
-                <${View} key=${comment.id} style=${styles.commentCard}>
-                  <${View} style=${styles.authorRow}>
-                    <${View} style=${[styles.avatarSmall, { backgroundColor: getAuthorTheme(comment.author).bg }]}>
-                      <${Text} style=${styles.avatarTextSmall}>${initials(comment.author)}<//>
-                    <//>
-                    <${View} style=${styles.flexBox}>
-                      <${Text} style=${styles.postAuthor}>${comment.author}<//>
-                      <${Text} style=${styles.postMeta}>${formatFeedTimeMsk(comment.updatedAt || comment.createdAt)}<//>
-                    <//>
-                  <//>
-                  ${parent ? html`<${Text} style=${styles.replyLine}>Ответ: ${parent.author}<//>` : null}
-                  <${Text} style=${styles.commentText}>${comment.text}<//>
-                  <${View} style=${styles.postActions}>
-                    <${Pressable}
-                      onPress=${() => onChangeDraft({ text: "", parentId: comment.id, commentId: "" })}
-                      style=${styles.actionChip}
-                    >
-                      <${Ionicons} name="return-up-forward-outline" size=${16} color=${styles.actionChipIconColor} />
-                      <${Text} style=${styles.actionChipText}>Ответить<//>
-                    <//>
-                    ${own ? html`
-                      <${Pressable}
-                        onPress=${() => onChangeDraft({ text: comment.text, parentId: comment.parentId || "", commentId: comment.id })}
-                        style=${styles.actionChip}
-                      >
-                        <${Ionicons} name="create-outline" size=${16} color=${styles.actionChipIconColor} />
-                        <${Text} style=${styles.actionChipText}>Изменить<//>
-                      <//>
-                      <${Pressable}
-                        onPress=${() => onDelete(post.id, comment.id)}
-                        style=${styles.actionChipDanger}
-                      >
-                        <${Ionicons} name="trash-outline" size=${16} color=${styles.actionChipDangerColor} />
-                        <${Text} style=${styles.actionChipDangerText}>Удалить<//>
-                      <//>
-                    ` : null}
-                  <//>
-                <//>
-              `;
-            }) : html`<${Text} style=${styles.emptyText}>Пока без комментариев.<//>`}
+            ${comments.length ? renderCommentThread() : html`<${Text} key="comments-empty" style=${styles.emptyText}>Пока без комментариев.<//>`}
           <//>
           <${View} style=${styles.commentsComposer}>
             ${draft.parentId ? html`
@@ -2122,6 +2204,7 @@ function MoneyEditorModal({ styles, editor, onChange, onClose, onSave, onDelete 
             <${View}>
               ${editor.id ? html`
                 <${Pressable}
+                  key="money-editor-delete"
                   onPress=${() => {
                     if (editor.kind === "tab") onDelete("tab", { tabId: editor.id });
                     if (editor.kind === "group") onDelete("group", { tabId: editor.tabId, groupId: editor.id });
@@ -2896,6 +2979,15 @@ function createStyles(theme, insets) {
       borderBottomWidth: 1,
       borderBottomColor: theme.line,
     },
+    commentCardChild: {
+      marginLeft: 18,
+      paddingLeft: 12,
+      borderLeftWidth: 2,
+      borderLeftColor: theme.line,
+    },
+    commentChildren: {
+      marginTop: 12,
+    },
     commentText: {
       color: theme.text,
       fontSize: 15,
@@ -3032,6 +3124,42 @@ function createStyles(theme, insets) {
       color: theme.textSoft,
       fontSize: 13,
       marginTop: 4,
+    },
+    settingsDrawerBackdrop: {
+      flex: 1,
+      backgroundColor: theme.overlay,
+      flexDirection: "row",
+    },
+    settingsDrawerShade: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    settingsDrawerPanel: {
+      width: "88%",
+      maxWidth: 420,
+      height: "100%",
+      backgroundColor: theme.bg,
+      borderRightWidth: 1,
+      borderRightColor: theme.line,
+      shadowColor: "#000000",
+      shadowOpacity: theme.id === "dark" ? 0.32 : 0.16,
+      shadowRadius: 18,
+      shadowOffset: { width: 8, height: 0 },
+      elevation: 8,
+    },
+    settingsDrawerHeader: {
+      paddingHorizontal: 16,
+      paddingTop: Math.max(insets.top, 12) + 12,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.line,
+      backgroundColor: theme.bgAlt,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
     },
     modalOverlay: {
       flex: 1,
@@ -3254,6 +3382,11 @@ function createStyles(theme, insets) {
       borderRadius: 14,
       marginRight: 8,
       backgroundColor: theme.panelMuted,
+      overflow: "hidden",
+    },
+    agendaThumbImage: {
+      width: "100%",
+      height: "100%",
     },
     secondaryChip: {
       minHeight: 34,

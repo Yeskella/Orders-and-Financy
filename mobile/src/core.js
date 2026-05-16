@@ -23,7 +23,6 @@ export const VIEWS = [
   { id: "planner", label: "События", icon: "list-outline", iconActive: "list" },
   { id: "money", label: "Планы", icon: "wallet-outline", iconActive: "wallet" },
   { id: "plans", label: "Лента", icon: "home-outline", iconActive: "home" },
-  { id: "settings", label: "Настройки", icon: "settings-outline", iconActive: "settings" },
 ];
 
 export const THEMES = [
@@ -1217,6 +1216,170 @@ export const saveAppState = async (store, payload) => {
   } catch (error) {
     if (isMissingSupabaseTableError(error)) throw new Error(SUPABASE_SCHEMA_MESSAGE);
     throw new Error(error.message || "Не удалось сохранить данные в Supabase");
+  }
+
+  return { ok: true };
+};
+
+const serializeMetaState = (payload) => {
+  const state = normalizeState(payload);
+  return JSON.stringify({
+    settings: state.settings,
+    view: state.view,
+    calendarMonth: state.calendarMonth,
+    plannerSelectedDate: state.plannerSelectedDate,
+    moneyActiveTabId: state.moneyActiveTabId,
+    feedFilters: state.feedFilters,
+  });
+};
+
+const saveMetaSlice = async (store, payload) => {
+  const state = normalizeState(payload);
+  const metaRow = {
+    id: store.metaRowId,
+    settings: state.settings,
+    view: state.view,
+    calendar_month: state.calendarMonth,
+    planner_selected_date: state.plannerSelectedDate,
+    dogs_selected_date: state.dogsSelectedDate,
+    money_active_tab_id: state.moneyActiveTabId,
+    feed_filters: state.feedFilters,
+    updated_at: nowISO(),
+  };
+
+  const { error } = await runSupabaseQuery("app_meta_slice_upsert", () => (
+    store.client.from(store.tables.meta).upsert(metaRow, { onConflict: "id" })
+  ));
+  if (error) {
+    if (isMissingSupabaseTableError(error)) throw new Error(SUPABASE_SCHEMA_MESSAGE);
+    throw new Error(error.message || "Не удалось обновить настройки в Supabase");
+  }
+};
+
+const savePlannerSlice = async (store, entries) => {
+  const rows = normalizeState({ ...DEFAULT_STATE, plannerEntries: entries }).plannerEntries.map((entry) => ({
+    id: entry.id,
+    date: entry.date || "",
+    text: entry.text || "",
+    amount: entry.amount ?? "",
+    repeat_monthly: Boolean(entry.repeatMonthly),
+    repeat_weekly: Boolean(entry.repeatWeekly),
+    repeat_yearly: Boolean(entry.repeatYearly),
+    created_at: entry.createdAt || "",
+    created_by: entry.createdBy || "",
+    updated_at: entry.updatedAt || "",
+    updated_by: entry.updatedBy || "",
+  }));
+
+  await upsertRows(store.client, store.tables.planner, rows);
+  await deleteMissingRows(store.client, store.tables.planner, rows.map((row) => row.id));
+};
+
+const savePostsSlice = async (store, posts) => {
+  const normalizedPosts = normalizeState({ ...DEFAULT_STATE, posts }).posts;
+  const postRows = normalizedPosts.map((post) => ({
+    id: post.id,
+    author: post.author || "",
+    text: post.text || "",
+    images: Array.isArray(post.images) ? post.images : [],
+    pinned: Boolean(post.pinned),
+    archived: Boolean(post.archived),
+    created_at: post.createdAt || "",
+    created_by: post.createdBy || "",
+    updated_at: post.updatedAt || "",
+    updated_by: post.updatedBy || "",
+    start_date: post.startDate || "",
+    end_date: post.endDate || "",
+  }));
+
+  const commentRows = normalizedPosts.flatMap((post) => (post.comments || []).map((comment) => ({
+    id: comment.id,
+    post_id: post.id,
+    author: comment.author || "",
+    text: comment.text || "",
+    parent_id: comment.parentId || "",
+    created_at: comment.createdAt || "",
+    created_by: comment.createdBy || "",
+    updated_at: comment.updatedAt || "",
+    updated_by: comment.updatedBy || "",
+  })));
+
+  await upsertRows(store.client, store.tables.posts, postRows);
+  await upsertRows(store.client, store.tables.comments, commentRows);
+  await deleteMissingRows(store.client, store.tables.comments, commentRows.map((row) => row.id));
+  await deleteMissingRows(store.client, store.tables.posts, postRows.map((row) => row.id));
+};
+
+const saveMoneySlice = async (store, customTabs) => {
+  const tabs = normalizeState({ ...DEFAULT_STATE, customTabs }).customTabs;
+  const tabRows = tabs.map((tab, index) => ({
+    id: tab.id,
+    title: tab.title || "",
+    position: index,
+    created_at: tab.createdAt || "",
+    created_by: tab.createdBy || "",
+    updated_at: tab.updatedAt || "",
+    updated_by: tab.updatedBy || "",
+  }));
+
+  const groupRows = tabs.flatMap((tab) => (tab.groups || []).map((group, index) => ({
+    id: group.id,
+    tab_id: tab.id,
+    title: group.title || "",
+    position: index,
+    created_at: group.createdAt || "",
+    created_by: group.createdBy || "",
+    updated_at: group.updatedAt || "",
+    updated_by: group.updatedBy || "",
+  })));
+
+  const itemRows = tabs.flatMap((tab) => (tab.groups || []).flatMap((group) => (
+    group.items || []
+  ).map((item, index) => ({
+    id: item.id,
+    group_id: group.id,
+    name: item.name || "",
+    cost: item.cost ?? "",
+    completed: Boolean(item.completed),
+    is_new: Boolean(item.isNew),
+    position: index,
+    created_at: item.createdAt || "",
+    created_by: item.createdBy || "",
+    updated_at: item.updatedAt || "",
+    updated_by: item.updatedBy || "",
+  }))));
+
+  await upsertRows(store.client, store.tables.moneyTabs, tabRows);
+  await upsertRows(store.client, store.tables.moneyGroups, groupRows);
+  await upsertRows(store.client, store.tables.moneyItems, itemRows);
+  await deleteMissingRows(store.client, store.tables.moneyItems, itemRows.map((row) => row.id));
+  await deleteMissingRows(store.client, store.tables.moneyGroups, groupRows.map((row) => row.id));
+  await deleteMissingRows(store.client, store.tables.moneyTabs, tabRows.map((row) => row.id));
+};
+
+export const saveStateSlices = async (store, previousPayload, nextPayload) => {
+  const previousState = normalizeState(previousPayload || DEFAULT_STATE);
+  const nextState = normalizeState(nextPayload || DEFAULT_STATE);
+  const tasks = [];
+
+  if (serializeMetaState(previousState) !== serializeMetaState(nextState)) {
+    tasks.push(saveMetaSlice(store, nextState));
+  }
+  if (JSON.stringify(previousState.plannerEntries) !== JSON.stringify(nextState.plannerEntries)) {
+    tasks.push(savePlannerSlice(store, nextState.plannerEntries));
+  }
+  if (JSON.stringify(previousState.posts) !== JSON.stringify(nextState.posts)) {
+    tasks.push(savePostsSlice(store, nextState.posts));
+  }
+  if (JSON.stringify(previousState.customTabs) !== JSON.stringify(nextState.customTabs)) {
+    tasks.push(saveMoneySlice(store, nextState.customTabs));
+  }
+
+  try {
+    await Promise.all(tasks);
+  } catch (error) {
+    if (isMissingSupabaseTableError(error)) throw new Error(SUPABASE_SCHEMA_MESSAGE);
+    throw new Error(error.message || "Не удалось сохранить изменения в Supabase");
   }
 
   return { ok: true };
