@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Планирование семьи",
+    "slug": "planning-family-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "../assets/icons/icon-512.png",
+    "scheme": "planningfamily",
+    "splash": {
+      "image": "../assets/icons/icon-512.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#edf4ff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ru.myfamilyplanner.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "../assets/icons/icon-512.png",
+        "backgroundColor": "#edf4ff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "ru.myfamilyplanner.app"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Разрешите доступ к фото, чтобы прикреплять изображения к публикациям.",
+          "cameraPermission": "Разрешите доступ к камере, чтобы добавлять фотографии в публикации."
+        }
+      ]
+    ],
+    "extra": {
+      "appName": "Планирование семьи"
+    }
+  }
+}
